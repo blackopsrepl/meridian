@@ -1,7 +1,11 @@
-# API reference
+# Internal desktop request contract
 
-All endpoints are local by default, use JSON unless explicitly documented, and
-return a structured `{ "error", "status" }` body on API failure.
+These routes are dispatched inside the Tauri process through the private
+`meridian` custom protocol. Meridian does not bind a TCP socket, publish an
+HTTP service, or accept requests from another process. The HTTP-shaped request
+and response types remain an internal adapter because they allow the existing
+Rust-rendered forms, exports, and focused route tests to share one contract.
+JSON failures return a structured `{ "error", "status" }` body.
 
 ## Charts
 
@@ -14,8 +18,8 @@ return a structured `{ "error", "status" }` body on API failure.
 - `GET /api/v1/charts/{id}`
 - `DELETE /api/v1/charts/{id}`
 
-Browser chart creation resolves the submitted GeoNames `city_id` against the
-server's local atlas. Unless an explicit manual override is enabled, posted
+Desktop chart creation resolves the submitted GeoNames `city_id` against the
+bundled local atlas. Unless an explicit manual override is enabled, posted
 coordinate or time-zone fields are ignored and the canonical atlas values are
 stored in the chart request.
 
@@ -40,14 +44,14 @@ values retain the radix place.
 ## Relationships
 
 `GET /api/v1/relationships?first={id}&second={id}&method={method}` accepts
-`synastry`, `composite`, or `davison`. The corresponding browser route can
+`synastry`, `composite`, or `davison`. The corresponding desktop workspace can
 download a standalone SVG from `/tools/relationships.svg` with the same query.
 
 ## Ephemeris and events
 
 `GET /api/v1/ephemeris?start_jd={jd}&rows={count}&step={days}` returns a
 septenary table. `GET /api/v1/events?start_jd={jd}&end_jd={jd}` returns exact
-ingresses, stations, new/full moons, and solar/lunar eclipses. The browser
+ingresses, stations, new/full moons, and solar/lunar eclipses. The desktop
 ephemeris route also exports tidy CSV.
 
 ## Elections

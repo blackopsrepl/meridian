@@ -1,4 +1,4 @@
-.PHONY: setup data-current data-cities run test check fmt lint clean
+.PHONY: setup data-current data-cities verify-data run bundle test check fmt lint clean
 
 setup:
 	./tools/fetch-ephemeris --all
@@ -11,8 +11,14 @@ data-current:
 data-cities:
 	./tools/fetch-geonames
 
+verify-data:
+	python3 tools/verify-release-data
+
 run:
-	cargo run --locked -- serve
+	cargo tauri dev
+
+bundle: verify-data
+	cargo tauri build
 
 test:
 	cargo test --locked --all-targets

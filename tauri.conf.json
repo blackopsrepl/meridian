@@ -1,0 +1,67 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Meridian",
+  "version": "0.1.0",
+  "identifier": "org.meridian.workbench",
+  "build": {
+    "frontendDist": "desktop"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Meridian",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 900,
+        "minHeight": 640,
+        "center": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Lifestyle",
+    "shortDescription": "Classical septenary astrology workbench",
+    "longDescription": "A local-first classical astrology workbench with high-precision Swiss Ephemeris calculations, a world-city atlas, chart archiving, comparison, forecasting, ephemeris, and export workflows.",
+    "copyright": "Copyright (C) 2026 Meridian contributors",
+    "license": "AGPL-3.0-or-later",
+    "licenseFile": "LICENSE",
+    "resources": [
+      "data/ephe/",
+      "data/geonames/",
+      "NOTICE",
+      "LICENSE"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "-"
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "windows": {
+      "minimumWebview2Version": "110.0.1531.0",
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

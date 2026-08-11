@@ -1073,7 +1073,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn every_browser_workspace_has_a_live_route() -> Result<(), Box<dyn std::error::Error>> {
+    async fn every_desktop_workspace_has_a_live_route() -> Result<(), Box<dyn std::error::Error>> {
         let app = test_app()?;
         for path in [
             "/charts/new",
@@ -1106,7 +1106,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn browser_chart_uses_canonical_atlas_location() -> Result<(), Box<dyn std::error::Error>>
+    async fn desktop_chart_uses_canonical_atlas_location() -> Result<(), Box<dyn std::error::Error>>
     {
         let app = test_app()?;
         let body = concat!(
@@ -1149,7 +1149,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn browser_chart_accepts_explicit_advanced_location_overrides()
+    async fn desktop_chart_accepts_explicit_advanced_location_overrides()
     -> Result<(), Box<dyn std::error::Error>> {
         let app = test_app()?;
         let body = concat!(

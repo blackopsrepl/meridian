@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Verify every offline data file against the release manifest."""
+
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def main() -> None:
+    root = Path(__file__).resolve().parent.parent
+    manifest = root / "packaging" / "data.sha256"
+    entries = []
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        digest, relative_path = line.split(maxsplit=1)
+        entries.append((digest, root / relative_path))
+
+    manifest_paths = {path for _, path in entries}
+    if len(manifest_paths) != len(entries):
+        raise SystemExit("release data manifest contains duplicate paths")
+
+    actual_paths = set((root / "data/ephe").glob("*.se1"))
+    actual_paths.update((root / "data/geonames").glob("*.txt"))
+    if manifest_paths != actual_paths:
+        missing = sorted(path.relative_to(root) for path in actual_paths - manifest_paths)
+        stale = sorted(path.relative_to(root) for path in manifest_paths - actual_paths)
+        raise SystemExit(
+            f"release data manifest does not match the packaged files; "
+            f"unlisted={missing}, missing={stale}"
+        )
+
+    for expected, path in entries:
+        actual = sha256(path)
+        if actual != expected:
+            raise SystemExit(f"release data digest mismatch: {path}")
+
+    ephemeris_count = sum(path.suffix == ".se1" for _, path in entries)
+    if ephemeris_count != 102:
+        raise SystemExit(
+            f"release manifest contains {ephemeris_count} ephemeris files, expected 102"
+        )
+    atlas_count = sum(path.parent.name == "geonames" for _, path in entries)
+    if atlas_count != 3:
+        raise SystemExit(
+            f"release manifest contains {atlas_count} atlas files, expected 3"
+        )
+    print(f"verified {len(entries)} offline data files")
+
+
+if __name__ == "__main__":
+    main()

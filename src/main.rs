@@ -1,164 +1,151 @@
-use std::net::SocketAddr;
+use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 
-use anyhow::{Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
-use meridian::astro::{ChartCalculator, ChartRequest, SwissEphemerisProvider};
+use anyhow::{Context, Result, anyhow};
+use axum::Router;
+use axum::body::{Body, to_bytes};
+use meridian::astro::{ChartCalculator, SwissEphemerisProvider};
 use meridian::locations::CityIndex;
-use meridian::render::{WheelOptions, chart_csv, render_wheel};
 use meridian::store::Store;
-use meridian::web::{AppState, app};
-use tokio::net::TcpListener;
-use tracing::info;
+use meridian::web::{AppState, app as desktop_router};
+use tauri::Manager;
+use tauri::path::BaseDirectory;
+use tower::ServiceExt;
 use tracing_subscriber::EnvFilter;
 
-#[derive(Debug, Parser)]
-#[command(
-    name = "meridian",
-    version,
-    about = "Classical septenary astrology workbench"
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
+const MAX_DESKTOP_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Debug)]
+struct DesktopPaths {
+    database: PathBuf,
+    ephemeris: PathBuf,
+    cities: PathBuf,
 }
 
-#[derive(Debug, Subcommand)]
-enum Command {
-    /// Run the local web application and JSON API.
-    Serve {
-        #[arg(long, env = "MERIDIAN_BIND", default_value = "127.0.0.1:3001")]
-        bind: SocketAddr,
-        #[arg(
-            long,
-            env = "MERIDIAN_DATABASE",
-            default_value = "data/meridian.sqlite3"
-        )]
-        database: PathBuf,
-        #[arg(long, env = "MERIDIAN_EPHE_PATH", default_value = "data/ephe")]
-        ephemeris: PathBuf,
-        #[arg(long, env = "MERIDIAN_CITY_PATH", default_value = "data/geonames")]
-        cities: PathBuf,
-    },
-    /// Calculate one chart request from a JSON file.
-    Chart {
-        #[arg(value_name = "REQUEST.json")]
-        request: PathBuf,
-        #[arg(long, value_enum, default_value = "json")]
-        format: OutputFormat,
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        #[arg(long, env = "MERIDIAN_EPHE_PATH", default_value = "data/ephe")]
-        ephemeris: PathBuf,
-    },
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum OutputFormat {
-    Json,
-    Svg,
-    Csv,
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("meridian=info")),
         )
         .compact()
         .init();
-    match Cli::parse().command {
-        Command::Serve {
-            bind,
-            database,
-            ephemeris,
-            cities,
-        } => serve(bind, database, ephemeris, cities).await,
-        Command::Chart {
-            request,
-            format,
-            output,
-            ephemeris,
-        } => calculate_file(request, format, output, ephemeris),
-    }
-}
 
-async fn serve(
-    bind: SocketAddr,
-    database: PathBuf,
-    ephemeris: PathBuf,
-    cities: PathBuf,
-) -> Result<()> {
-    let provider = SwissEphemerisProvider::new(&ephemeris)
-        .with_context(|| format!("could not open ephemeris at {}", ephemeris.display()))?;
-    let store = Store::open(&database)
-        .with_context(|| format!("could not open database at {}", database.display()))?;
-    let city_index = CityIndex::load(&cities).with_context(|| {
-        format!(
-            "could not open the city atlas at {}; run `make data-cities`",
-            cities.display()
+    let router = Arc::new(OnceLock::<Router>::new());
+    let protocol_router = Arc::clone(&router);
+    let setup_router = Arc::clone(&router);
+
+    tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol(
+            "meridian",
+            move |_context, request, responder| {
+                let Some(router) = protocol_router.get().cloned() else {
+                    responder.respond(
+                        tauri::http::Response::builder()
+                            .status(503)
+                            .header("content-type", "text/plain; charset=utf-8")
+                            .body(b"Meridian is still starting".to_vec())
+                            .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+                    );
+                    return;
+                };
+                tauri::async_runtime::spawn(async move {
+                    let request = request.map(Body::from);
+                    let response = match router.oneshot(request).await {
+                        Ok(response) => response,
+                        Err(error) => match error {},
+                    };
+                    let (parts, body) = response.into_parts();
+                    let response = match to_bytes(body, MAX_DESKTOP_RESPONSE_BYTES).await {
+                        Ok(bytes) => tauri::http::Response::from_parts(parts, bytes.to_vec()),
+                        Err(error) => tauri::http::Response::builder()
+                            .status(500)
+                            .header("content-type", "text/plain; charset=utf-8")
+                            .body(
+                                format!("could not render desktop response: {error}").into_bytes(),
+                            )
+                            .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+                    };
+                    responder.respond(response);
+                });
+            },
         )
-    })?;
-    let city_count = city_index.len();
-    let state = AppState::new(ChartCalculator::new(provider), store, city_index);
-    let listener = TcpListener::bind(bind)
-        .await
-        .with_context(|| format!("could not bind {bind}"))?;
-    info!(address = %bind, city_count, "Meridian observatory ready");
-    axum::serve(listener, app(state))
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("HTTP server stopped unexpectedly")
-}
+        .setup(move |application| {
+            let paths = DesktopPaths::resolve(application.handle())?;
+            let router = build_router(&paths)?;
+            setup_router
+                .set(router)
+                .map_err(|_| anyhow!("desktop router was initialized more than once"))?;
 
-fn calculate_file(
-    request_path: PathBuf,
-    format: OutputFormat,
-    output: Option<PathBuf>,
-    ephemeris: PathBuf,
-) -> Result<()> {
-    let input = std::fs::read_to_string(&request_path)
-        .with_context(|| format!("could not read {}", request_path.display()))?;
-    let request: ChartRequest = serde_json::from_str(&input)
-        .with_context(|| format!("invalid request JSON in {}", request_path.display()))?;
-    let chart =
-        ChartCalculator::new(SwissEphemerisProvider::new(&ephemeris)?).calculate(request)?;
-    let bytes = match format {
-        OutputFormat::Json => serde_json::to_vec_pretty(&chart)?,
-        OutputFormat::Svg => render_wheel(&chart, WheelOptions::default()).into_bytes(),
-        OutputFormat::Csv => chart_csv(&chart)?,
-    };
-    if let Some(path) = output {
-        std::fs::write(&path, bytes)
-            .with_context(|| format!("could not write {}", path.display()))?;
-    } else {
-        use std::io::Write as _;
-        std::io::stdout().write_all(&bytes)?;
-        std::io::stdout().write_all(b"\n")?;
-    }
+            let window = application
+                .get_webview_window("main")
+                .context("the main Meridian window is not configured")?;
+            window.navigate("meridian://localhost/".parse()?)?;
+            window.show()?;
+            Ok(())
+        })
+        .run(tauri::generate_context!())?;
     Ok(())
 }
 
-async fn shutdown_signal() {
-    let interrupt = async {
-        if let Err(error) = tokio::signal::ctrl_c().await {
-            tracing::error!(%error, "failed to install Ctrl-C handler");
-        }
-    };
-    #[cfg(unix)]
-    let terminate = async {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut signal) => {
-                signal.recv().await;
-            }
-            Err(error) => tracing::error!(%error, "failed to install termination handler"),
-        }
-    };
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-    tokio::select! {
-        () = interrupt => {},
-        () = terminate => {},
+impl DesktopPaths {
+    fn resolve(application: &tauri::AppHandle) -> Result<Self> {
+        let database = match std::env::var_os("MERIDIAN_DATABASE") {
+            Some(path) => PathBuf::from(path),
+            None => application
+                .path()
+                .app_data_dir()
+                .context("could not resolve the Meridian application-data directory")?
+                .join("meridian.sqlite3"),
+        };
+        let ephemeris = resource_or_override(application, "MERIDIAN_EPHE_PATH", "data/ephe")?;
+        let cities = resource_or_override(application, "MERIDIAN_CITY_PATH", "data/geonames")?;
+        Ok(Self {
+            database,
+            ephemeris,
+            cities,
+        })
     }
+}
+
+fn resource_or_override(
+    application: &tauri::AppHandle,
+    variable: &str,
+    resource: &str,
+) -> Result<PathBuf> {
+    std::env::var_os(variable).map_or_else(
+        || {
+            application
+                .path()
+                .resolve(resource, BaseDirectory::Resource)
+                .with_context(|| format!("could not resolve bundled resource {resource}"))
+        },
+        |path: OsString| Ok(PathBuf::from(path)),
+    )
+}
+
+fn build_router(paths: &DesktopPaths) -> Result<Router> {
+    let provider = SwissEphemerisProvider::new(&paths.ephemeris).with_context(|| {
+        format!(
+            "could not open the bundled ephemeris at {}",
+            paths.ephemeris.display()
+        )
+    })?;
+    let store = Store::open(&paths.database).with_context(|| {
+        format!(
+            "could not open the chart archive at {}",
+            paths.database.display()
+        )
+    })?;
+    let city_index = CityIndex::load(&paths.cities).with_context(|| {
+        format!(
+            "could not open the bundled city atlas at {}",
+            paths.cities.display()
+        )
+    })?;
+    Ok(desktop_router(AppState::new(
+        ChartCalculator::new(provider),
+        store,
+        city_index,
+    )))
 }

@@ -1,6 +1,6 @@
 # Meridian
 
-Meridian is a full-stack classical astrology workbench written in Rust. It is
+Meridian is a desktop classical astrology workbench written in Rust. It is
 deliberately limited to the traditional septenary—Sun, Moon, Mercury, Venus,
 Mars, Jupiter, and Saturn—while retaining professional chart calculation,
 comparison, forecasting, ephemeris, and export workflows.
@@ -10,10 +10,10 @@ through the stateless pure-Rust `swisseph-rs` engine. Meridian never calls a
 remote astrology service and rejects silent fallback to an analytical
 ephemeris when high-precision mode is requested.
 
-## Run locally
+## Develop locally
 
-Requirements: Rust 1.95, `curl`, `unzip`, `sha256sum`, and standard POSIX
-utilities.
+Requirements: Rust 1.95, Tauri CLI 2.11.4, `curl`, `unzip`, `sha256sum`, and
+the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```sh
 make setup
@@ -25,11 +25,10 @@ and the local GeoNames world-city atlas. The current atlas snapshot contains
 more than 200,000 cities and administrative seats with alternate names,
 coordinates, elevation, population, and IANA time zones.
 For a faster present-day development setup, run `make data-current` followed by
-`cargo build --locked`; that smaller set covers 1800–2399.
-
-Then open <http://127.0.0.1:3001>. The database defaults to
-`data/meridian.sqlite3`; set `MERIDIAN_DATABASE`, `MERIDIAN_EPHE_PATH`,
-`MERIDIAN_CITY_PATH`, or `MERIDIAN_BIND` to override the defaults.
+`cargo build --locked`; that smaller set covers 1800–2399. The desktop process
+opens its own window and does not bind a TCP port or launch an external browser.
+Set `MERIDIAN_DATABASE`, `MERIDIAN_EPHE_PATH`, or `MERIDIAN_CITY_PATH` to
+override the desktop paths during development.
 
 ## Surfaces
 
@@ -51,51 +50,22 @@ the exact Meridian workflow that owns each capability.
 
 ## Command line
 
-Calculate without starting the server:
+Calculate without starting the desktop application:
 
 ```sh
-cargo run --locked -- chart examples/chart-request.json --format json
-cargo run --locked -- chart examples/chart-request.json --format svg --output chart.svg
-cargo run --locked -- chart examples/chart-request.json --format csv --output chart.csv
+cargo run --locked --bin meridian-cli -- examples/chart-request.json --format json
+cargo run --locked --bin meridian-cli -- examples/chart-request.json --format svg --output chart.svg
+cargo run --locked --bin meridian-cli -- examples/chart-request.json --format csv --output chart.csv
 ```
 
 All formats are derived from the same immutable `Chart`; exporters never
 recalculate positions.
 
-## HTTP API
+## Desktop transport
 
-The local service exposes versioned JSON endpoints:
-
-- `POST /api/v1/calculate` — calculate a chart without saving it
-- `GET|POST /api/v1/charts` and `GET|DELETE /api/v1/charts/{id}` — archive
-- `GET /api/v1/charts/{id}/timing` — transits, returns, progressions,
-  directions, profections, firdaria, harmonics, and planetary hours
-- `GET /api/v1/relationships` — synastry, composite, or Davison results
-- `GET /api/v1/ephemeris` and `GET /api/v1/events` — tables and exact events
-- `GET /api/v1/locations?q={name}` — ranked local city and alternate-name search
-- `POST /api/v1/elections` — ranked electional search with testimony ledger
-
-`POST /api/v1/calculate` accepts the plain request in
-`examples/chart-request.json`. To override the aspect policy, send an envelope:
-
-```json
-{
-  "chart": { "title": "…", "purpose": "natal", "local_time": {}, "time_zone": {}, "location_name": "…", "coordinates": {}, "house_system": "whole_sign" },
-  "orb_policy": {
-    "conjunction": 8.0,
-    "sextile": 5.0,
-    "square": 7.0,
-    "trine": 7.0,
-    "opposition": 8.0,
-    "luminary_bonus": 2.0,
-    "angle_orb": 5.0,
-    "lot_orb": 3.0
-  }
-}
-```
-
-The abbreviated nested objects above show the envelope only; use the complete
-chart fields from the example file.
+The desktop UI and its JSON/form transport use a private Tauri custom protocol.
+They are never exposed through a network listener. `docs/API.md` documents that
+internal contract for tests and integrations inside the desktop process.
 
 ## Numerical contract
 

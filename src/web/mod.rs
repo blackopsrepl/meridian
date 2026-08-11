@@ -1,4 +1,4 @@
-//! Local-first HTTP application and versioned JSON API.
+//! Local-first desktop views and private request transport.
 
 mod error;
 mod forms;

@@ -9,3 +9,9 @@
 /.env
 *.log
 *.pdf
+/gen/
+/icons/android/
+/icons/ios/
+/icons/Square*.png
+/icons/StoreLogo.png
+/icons/icon.png
