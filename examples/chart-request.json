@@ -1,0 +1,25 @@
+{
+  "title": "J2000 Greenwich",
+  "purpose": "event",
+  "local_time": {
+    "year": 2000,
+    "month": 1,
+    "day": 1,
+    "hour": 12,
+    "minute": 0,
+    "second": 0.0,
+    "calendar": "gregorian"
+  },
+  "time_zone": {
+    "kind": "fixed_offset",
+    "minutes_east": 0,
+    "label": "UTC"
+  },
+  "location_name": "Greenwich",
+  "coordinates": {
+    "latitude": 51.4779,
+    "longitude": 0.0,
+    "elevation_m": 46.0
+  },
+  "house_system": "whole_sign"
+}

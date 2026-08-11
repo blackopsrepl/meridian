@@ -1,0 +1,10 @@
+/target/
+/data/*.sqlite3
+/data/*.sqlite3-*
+/data/ephe/*.se1
+/data/ephe/*.eph
+/data/ephe/*.txt
+/.env
+*.log
+*.pdf
+

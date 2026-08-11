@@ -1,0 +1,10 @@
+Meridian
+Copyright (C) 2026 Meridian contributors
+
+This application uses swisseph-rs, a pure-Rust derivative of the Swiss
+Ephemeris. Swiss Ephemeris is Copyright (C) 1997-2021 Astrodienst AG,
+Switzerland, by Dieter Koch and Alois Treindl. The Rust port is Copyright (C)
+2026 Ninth House Studios LLC. The original and the Rust port are available
+under the GNU Affero General Public License. This attribution is provided only
+to satisfy the applicable copyright and license notices; it does not imply
+endorsement.
