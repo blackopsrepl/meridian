@@ -330,10 +330,10 @@ fn calculate_timing_output(
     let result = match technique {
         "transits" => TimingOutput::Transits(calculator.transits(natal, target_jd, end_jd)?),
         "secondary" => {
-            TimingOutput::Technique(calculator.secondary_progressions(natal, target_jd)?)
+            TimingOutput::Secondary(calculator.secondary_progressions(natal, target_jd)?)
         }
-        "solar_arc" => TimingOutput::Technique(calculator.solar_arc(natal, target_jd)?),
-        "harmonic" => TimingOutput::Technique(calculator.harmonic(natal, harmonic)?),
+        "solar_arc" => TimingOutput::SolarArc(calculator.solar_arc(natal, target_jd)?),
+        "harmonic" => TimingOutput::Harmonic(calculator.harmonic(natal, harmonic)?),
         "profection" => TimingOutput::Profection(AnnualProfection::at_age(natal, age as u32)),
         "firdaria" => TimingOutput::Firdaria(FirdariaPeriod::at_age(natal.sect, age)),
         "solar_return" | "lunar_return" => {
@@ -361,7 +361,11 @@ fn calculate_timing_output(
                 coordinates,
                 return_houses,
             )?;
-            TimingOutput::Return(Box::new(chart))
+            if technique == "solar_return" {
+                TimingOutput::SolarReturn(Box::new(chart))
+            } else {
+                TimingOutput::LunarReturn(Box::new(chart))
+            }
         }
         "planetary_hours" => {
             let (_, coordinates, _) = timing_location(
@@ -1220,6 +1224,24 @@ mod tests {
             )
             .await?;
         assert_eq!(timing.status(), StatusCode::OK);
+        let body = to_bytes(timing.into_body(), 2 * 1024 * 1024).await?;
+        let timing: serde_json::Value = serde_json::from_slice(&body)?;
+        assert_eq!(timing["technique"], "secondary");
+
+        let solar_return = app
+            .clone()
+            .oneshot(
+                Request::get(format!(
+                    "/api/v1/charts/{}/timing?technique=solar_return&target=2026-01-01",
+                    first.id
+                ))
+                .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(solar_return.status(), StatusCode::OK);
+        let body = to_bytes(solar_return.into_body(), 2 * 1024 * 1024).await?;
+        let solar_return: serde_json::Value = serde_json::from_slice(&body)?;
+        assert_eq!(solar_return["technique"], "solar_return");
 
         let election_request = ElectionRequest {
             title: "API election".to_owned(),

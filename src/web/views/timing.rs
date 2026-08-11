@@ -15,10 +15,13 @@ use super::layout::page;
 #[serde(tag = "technique", content = "result", rename_all = "snake_case")]
 pub enum TimingOutput {
     Transits(Vec<TransitEvent>),
-    Technique(TechniqueChart),
+    Secondary(TechniqueChart),
+    SolarArc(TechniqueChart),
+    Harmonic(TechniqueChart),
     Profection(AnnualProfection),
     Firdaria(FirdariaPeriod),
-    Return(Box<Chart>),
+    SolarReturn(Box<Chart>),
+    LunarReturn(Box<Chart>),
     PlanetaryHours(PlanetaryHours),
 }
 
@@ -124,7 +127,9 @@ fn render_output(output: &TimingOutput) -> Markup {
                 }
             }
         },
-        TimingOutput::Technique(chart) => html! {
+        TimingOutput::Secondary(chart)
+        | TimingOutput::SolarArc(chart)
+        | TimingOutput::Harmonic(chart) => html! {
             section class="tool-results panel" {
                 (result_heading(&chart.title, &format!("{:?}", chart.technique)))
                 @if let Some(key) = chart.key_degrees { div class="technique-key" { span { "Key" } strong { (format!("{key:.6}°")) } } }
@@ -170,7 +175,7 @@ fn render_output(output: &TimingOutput) -> Markup {
                 }
             }
         },
-        TimingOutput::Return(chart) => html! {
+        TimingOutput::SolarReturn(chart) | TimingOutput::LunarReturn(chart) => html! {
             section class="tool-results panel return-result" {
                 (result_heading(&chart.request.title, &jd_label(chart.moment.jd_ut)))
                 div class="return-layout" {
