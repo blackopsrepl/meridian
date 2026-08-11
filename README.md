@@ -23,7 +23,7 @@ make run
 For a faster present-day development setup, run `make data-current` followed by
 `cargo build --locked`; that smaller set covers 1800–2399.
 
-Then open <http://127.0.0.1:3000>. The database defaults to
+Then open <http://127.0.0.1:3001>. The database defaults to
 `data/meridian.sqlite3`; set `MERIDIAN_DATABASE`, `MERIDIAN_EPHE_PATH`, or
 `MERIDIAN_BIND` to override the defaults.
 

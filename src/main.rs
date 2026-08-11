@@ -26,7 +26,7 @@ struct Cli {
 enum Command {
     /// Run the local web application and JSON API.
     Serve {
-        #[arg(long, env = "MERIDIAN_BIND", default_value = "127.0.0.1:3000")]
+        #[arg(long, env = "MERIDIAN_BIND", default_value = "127.0.0.1:3001")]
         bind: SocketAddr,
         #[arg(
             long,
