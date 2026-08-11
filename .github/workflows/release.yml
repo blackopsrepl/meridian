@@ -106,25 +106,6 @@ jobs:
           LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
         run: test -n "$LINUX_GPG_PRIVATE_KEY"
 
-      - name: Require macOS signing and notarization credentials
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          test -n "$APPLE_CERTIFICATE"
-          test -n "$APPLE_CERTIFICATE_PASSWORD"
-          test -n "$APPLE_SIGNING_IDENTITY"
-          test -n "$APPLE_ID"
-          test -n "$APPLE_PASSWORD"
-          test -n "$APPLE_TEAM_ID"
-
       - name: Import Windows signing certificate
         if: runner.os == 'Windows'
         shell: pwsh
@@ -158,16 +139,13 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: v__VERSION__
           releaseName: Meridian v__VERSION__
-          releaseBody: All installers include the complete ephemeris and city atlas for offline use.
+          releaseBody: >-
+            All installers include the complete ephemeris and city atlas for
+            offline use. The macOS DMG is ad-hoc signed and requires one
+            Gatekeeper approval through Privacy & Security on first launch.
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: false

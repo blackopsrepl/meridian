@@ -16,7 +16,7 @@ Download the installer for your operating system from the latest GitHub
 release:
 
 - Windows: the signed `-setup.exe` installer
-- macOS: the signed and notarized universal `.dmg`
+- macOS: the credential-free, ad-hoc-signed universal `.dmg`
 - Linux: the signed `.rpm` for Fedora, RHEL-compatible distributions, and
   openSUSE; `.deb` for Debian/Ubuntu; or `.AppImage` for portable use
 
@@ -26,6 +26,12 @@ location service and remains fully functional without a network connection.
 On Windows 10 and 11, the required WebView2 runtime is normally already part of
 the operating system. If it is absent or too old, the installer visibly runs
 Microsoft's WebView2 bootstrapper before Meridian starts.
+
+The macOS build does not require an Apple Developer account. Because Apple
+does not notarize credential-free applications, first try to open Meridian,
+then open **System Settings → Privacy & Security**, click **Open Anyway**, and
+confirm **Open**. macOS remembers that exception for subsequent launches.
+Administrators of managed Macs may disable this override.
 
 Meridian stores the chart archive in the operating system's per-user
 application-data directory. Application resources remain read-only, so

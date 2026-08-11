@@ -3,7 +3,8 @@
 Meridian is released as a Tauri 2 desktop application. A release is complete
 only when a non-technical user can install it, launch it from the operating
 system, calculate and save a chart without a network connection, and reopen the
-same chart after restarting the application.
+same chart after restarting the application. The credential-free macOS build
+also requires the documented one-time Gatekeeper approval.
 
 ## Release artifacts
 
@@ -11,7 +12,8 @@ The GitHub release workflow builds on each native operating system and attaches
 these user-facing artifacts:
 
 - Windows x86-64: signed per-user NSIS setup executable
-- macOS: signed and notarized universal DMG for Apple Silicon and Intel
+- macOS: ad-hoc-signed universal DMG for Apple Silicon and Intel, with no Apple
+  Developer account or notarization dependency
 - Linux x86-64: OpenPGP-signed RPM for Fedora, RHEL-compatible distributions,
   and openSUSE; DEB for Debian/Ubuntu; and AppImage for portable use, all built
   on Ubuntu 22.04
@@ -43,19 +45,11 @@ normally provide WebView2 as an operating-system component. On a system whose
 runtime is missing or older than `110.0.1531.0`, the NSIS installer runs the
 visible Microsoft bootstrapper before launch.
 
-## Signing prerequisites
+## Signing and trust contract
 
-The release workflow refuses to publish the platform artifacts unless the
-repository has the required signing credentials.
-
-macOS repository secrets:
-
-- `APPLE_CERTIFICATE`: base64-encoded Developer ID Application certificate
-- `APPLE_CERTIFICATE_PASSWORD`
-- `APPLE_SIGNING_IDENTITY`
-- `APPLE_ID`
-- `APPLE_PASSWORD`: Apple app-specific password
-- `APPLE_TEAM_ID`
+The release workflow refuses to publish the Windows and RPM artifacts unless
+the repository has their required signing credentials. The macOS artifact
+deliberately has no Apple credential dependency.
 
 Windows repository secrets:
 
@@ -70,10 +64,12 @@ Linux repository secret:
 The Windows runner imports the PFX into its temporary user certificate store
 and generates a Tauri configuration override containing its thumbprint. Tauri
 signs both the application and installer with SHA-256 and a DigiCert timestamp.
-The macOS runner signs, notarizes, and staples the universal application through
-Tauri's standard environment contract. The Linux runner signs the RPM after
-bundling, replaces the unsigned draft asset, and attaches the corresponding
-ASCII-armored public key to the release.
+The macOS runner uses Tauri's `-` signing identity to apply the ad-hoc signature
+required by Apple Silicon, but it does not submit the application to Apple.
+Gatekeeper therefore requires the user to attempt one launch and approve
+Meridian under **System Settings → Privacy & Security → Open Anyway**. The Linux
+runner signs the RPM after bundling, replaces the unsigned draft asset, and
+attaches the corresponding ASCII-armored public key to the release.
 
 Every generated installer and package also receives a GitHub build-provenance
 attestation after platform signing is complete.
