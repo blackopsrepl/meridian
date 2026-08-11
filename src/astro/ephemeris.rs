@@ -351,8 +351,17 @@ mod tests {
     }
 
     #[test]
-    fn uncovered_date_rejects_analytical_fallback() -> Result<(), EphemerisError> {
-        let provider = SwissEphemerisProvider::new("data/ephe")?;
+    fn uncovered_date_rejects_analytical_fallback() -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempdir()?;
+        std::fs::copy(
+            "data/ephe/sepl_18.se1",
+            directory.path().join("sepl_18.se1"),
+        )?;
+        std::fs::copy(
+            "data/ephe/semo_18.se1",
+            directory.path().join("semo_18.se1"),
+        )?;
+        let provider = SwissEphemerisProvider::new(directory.path())?;
         let result = provider.ecliptic_position(2_086_302.5, Planet::Sun);
         assert!(matches!(
             result,
