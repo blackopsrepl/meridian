@@ -8,3 +8,8 @@ Switzerland, by Dieter Koch and Alois Treindl. The Rust port is Copyright (C)
 under the GNU Affero General Public License. This attribution is provided only
 to satisfy the applicable copyright and license notices; it does not imply
 endorsement.
+
+The local city atlas contains data from GeoNames (https://www.geonames.org/),
+licensed under the Creative Commons Attribution 4.0 International License
+(https://creativecommons.org/licenses/by/4.0/). GeoNames data is provided as-is
+without warranty as to accuracy, timeliness, or completeness.

@@ -4,6 +4,7 @@ use crate::astro::{
     Calendar, ChartPurpose, ChartRequest, CivilDateTime, Coordinates, OrbPolicy, TimeZoneSpec,
     TraditionalHouseSystem,
 };
+use crate::locations::CityIndex;
 
 use super::error::WebError;
 
@@ -16,6 +17,13 @@ pub struct NewChartForm {
     pub day: u8,
     pub time: String,
     pub calendar: String,
+    #[serde(default)]
+    pub city_id: Option<u64>,
+    #[serde(default)]
+    pub manual_coordinates: Option<String>,
+    #[serde(default)]
+    pub manual_timezone: Option<String>,
+    #[serde(default)]
     pub zone_mode: String,
     #[serde(default)]
     pub timezone: String,
@@ -23,11 +31,14 @@ pub struct NewChartForm {
     pub fixed_offset_minutes: i32,
     #[serde(default)]
     pub fold: Option<String>,
-    pub location_name: String,
-    pub latitude: f64,
-    pub longitude: f64,
     #[serde(default)]
-    pub elevation_m: f64,
+    pub location_name: String,
+    #[serde(default)]
+    pub latitude: Option<f64>,
+    #[serde(default)]
+    pub longitude: Option<f64>,
+    #[serde(default)]
+    pub elevation_m: Option<f64>,
     pub house_system: String,
     #[serde(default = "default_conjunction")]
     pub orb_conjunction: f64,
@@ -48,7 +59,10 @@ pub struct NewChartForm {
 }
 
 impl NewChartForm {
-    pub fn into_calculation(self) -> Result<(ChartRequest, OrbPolicy), WebError> {
+    pub fn into_calculation(
+        self,
+        cities: &CityIndex,
+    ) -> Result<(ChartRequest, OrbPolicy), WebError> {
         let orb_policy = OrbPolicy {
             conjunction: validate_orb(self.orb_conjunction, "conjunction")?,
             sextile: validate_orb(self.orb_sextile, "sextile")?,
@@ -60,7 +74,6 @@ impl NewChartForm {
             lot_orb: validate_orb(self.orb_lot, "lot")?,
         };
         let title = required(self.title, "title")?;
-        let location_name = required(self.location_name, "location name")?;
         let (hour, minute, second) = parse_time(&self.time)?;
         let calendar = match self.calendar.as_str() {
             "gregorian" => Calendar::Gregorian,
@@ -69,19 +82,68 @@ impl NewChartForm {
         };
         let purpose = parse_purpose(&self.purpose)?;
         let house_system = parse_house_system(&self.house_system)?;
-        let time_zone = match self.zone_mode.as_str() {
-            "iana" => TimeZoneSpec::Iana {
-                name: required(self.timezone, "IANA time zone")?,
-                fold: parse_fold(self.fold.as_deref())?,
-            },
-            "fixed" => TimeZoneSpec::FixedOffset {
-                minutes_east: self.fixed_offset_minutes,
-                label: None,
-            },
-            value => {
-                return Err(WebError::BadRequest(format!(
-                    "unknown time-zone mode: {value}"
-                )));
+        let manual_coordinates = checkbox(
+            self.manual_coordinates.as_deref(),
+            "manual coordinate override",
+        )?;
+        let manual_timezone =
+            checkbox(self.manual_timezone.as_deref(), "manual time-zone override")?;
+        let selected_city = self
+            .city_id
+            .map(|id| {
+                cities.get(id).ok_or_else(|| {
+                    WebError::BadRequest(
+                        "the selected city is not present in the installed atlas".to_owned(),
+                    )
+                })
+            })
+            .transpose()?;
+        let (location_name, coordinates) = if manual_coordinates {
+            (
+                required(self.location_name, "location name")?,
+                Coordinates {
+                    latitude: required_number(self.latitude, "latitude")?,
+                    longitude: required_number(self.longitude, "longitude")?,
+                    elevation_m: self.elevation_m.unwrap_or(0.0),
+                },
+            )
+        } else {
+            let city = selected_city.ok_or_else(city_selection_required)?;
+            (
+                city.display_name.clone(),
+                Coordinates {
+                    latitude: city.latitude,
+                    longitude: city.longitude,
+                    elevation_m: city.elevation_m,
+                },
+            )
+        };
+        let fold = parse_fold(self.fold.as_deref())?;
+        let time_zone = if manual_timezone {
+            match self.zone_mode.as_str() {
+                "iana" => TimeZoneSpec::Iana {
+                    name: required(self.timezone, "IANA time zone")?,
+                    fold,
+                },
+                "fixed" => TimeZoneSpec::FixedOffset {
+                    minutes_east: self.fixed_offset_minutes,
+                    label: None,
+                },
+                value => {
+                    return Err(WebError::BadRequest(format!(
+                        "unknown time-zone mode: {value}"
+                    )));
+                }
+            }
+        } else {
+            let city = selected_city.ok_or_else(|| {
+                WebError::BadRequest(
+                    "select a city or enable the manual time-zone override".to_owned(),
+                )
+            })?;
+            TimeZoneSpec::Iana {
+                name: city.timezone.clone(),
+                fold,
             }
         };
         Ok((
@@ -99,15 +161,29 @@ impl NewChartForm {
                 },
                 time_zone,
                 location_name,
-                coordinates: Coordinates {
-                    latitude: self.latitude,
-                    longitude: self.longitude,
-                    elevation_m: self.elevation_m,
-                },
+                coordinates,
                 house_system,
             },
             orb_policy,
         ))
+    }
+}
+
+fn city_selection_required() -> WebError {
+    WebError::BadRequest(
+        "choose a city from the atlas or enable the manual coordinate override".to_owned(),
+    )
+}
+
+fn required_number(value: Option<f64>, name: &str) -> Result<f64, WebError> {
+    value.ok_or_else(|| WebError::BadRequest(format!("{name} is required")))
+}
+
+fn checkbox(value: Option<&str>, name: &str) -> Result<bool, WebError> {
+    match value {
+        None => Ok(false),
+        Some("1" | "on" | "true") => Ok(true),
+        Some(_) => Err(WebError::BadRequest(format!("invalid {name}"))),
     }
 }
 

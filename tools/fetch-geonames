@@ -1,0 +1,53 @@
+#!/usr/bin/env sh
+set -eu
+
+base_url="https://download.geonames.org/export/dump"
+destination=${MERIDIAN_CITY_PATH:-data/geonames}
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT HUP INT TERM
+
+command -v unzip >/dev/null 2>&1 || {
+  echo "unzip is required to install the GeoNames city catalog" >&2
+  exit 1
+}
+
+mkdir -p "$destination"
+
+fetch() {
+  name=$1
+  echo "fetching GeoNames $name"
+  curl --fail --location --silent --show-error \
+    "$base_url/$name" --output "$temporary/$name"
+}
+
+fetch cities500.zip
+fetch countryInfo.txt
+fetch admin1CodesASCII.txt
+
+unzip -p "$temporary/cities500.zip" cities500.txt > "$temporary/cities500.txt"
+
+city_count=$(wc -l < "$temporary/cities500.txt" | tr -d ' ')
+if [ "$city_count" -lt 150000 ]; then
+  echo "GeoNames city catalog is unexpectedly small: $city_count records" >&2
+  exit 1
+fi
+
+awk -F '\t' 'NF < 19 { exit 1 }' "$temporary/cities500.txt" || {
+  echo "GeoNames city catalog does not have the documented 19-column shape" >&2
+  exit 1
+}
+
+install -m 0644 "$temporary/cities500.txt" "$destination/cities500.txt"
+install -m 0644 "$temporary/countryInfo.txt" "$destination/countryInfo.txt"
+install -m 0644 "$temporary/admin1CodesASCII.txt" "$destination/admin1CodesASCII.txt"
+
+archive_sha=$(sha256sum "$temporary/cities500.zip" | awk '{print $1}')
+{
+  echo "source=$base_url/cities500.zip"
+  echo "retrieved=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "archive_sha256=$archive_sha"
+  echo "records=$city_count"
+} > "$temporary/SOURCE"
+install -m 0644 "$temporary/SOURCE" "$destination/SOURCE"
+
+echo "GeoNames city catalog ready at $destination ($city_count records)"

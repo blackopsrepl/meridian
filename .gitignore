@@ -4,7 +4,8 @@
 /data/ephe/*.se1
 /data/ephe/*.eph
 /data/ephe/*.txt
+/data/geonames/*.txt
+/data/geonames/SOURCE
 /.env
 *.log
 *.pdf
-

@@ -45,6 +45,7 @@ pub fn router(state: AppState) -> Router {
         .route("/assets/app.css", get(stylesheet))
         .route("/assets/app.js", get(javascript))
         .route("/api/v1/health", get(api_health))
+        .route("/api/v1/locations", get(api_locations))
         .route("/api/v1/calculate", post(api_calculate))
         .route("/api/v1/ephemeris", get(api_ephemeris))
         .route("/api/v1/events", get(api_events))
@@ -73,16 +74,19 @@ struct PurposeQuery {
     purpose: Option<String>,
 }
 
-async fn new_chart(Query(query): Query<PurposeQuery>) -> Html<String> {
+async fn new_chart(
+    State(state): State<AppState>,
+    Query(query): Query<PurposeQuery>,
+) -> Html<String> {
     let purpose = query.purpose.as_deref().unwrap_or("natal");
-    Html(new_chart_page(purpose).into_string())
+    Html(new_chart_page(purpose, state.cities.len()).into_string())
 }
 
 async fn create_chart(
     State(state): State<AppState>,
     Form(form): Form<NewChartForm>,
 ) -> Result<Redirect, WebError> {
-    let (request, orb_policy) = form.into_calculation()?;
+    let (request, orb_policy) = form.into_calculation(&state.cities)?;
     let chart = state
         .calculator
         .calculate_with_orb_policy(request, orb_policy)?;
@@ -648,16 +652,31 @@ struct Health<'a> {
     version: &'a str,
     ephemeris: &'a str,
     planet_set: &'a str,
+    city_count: usize,
 }
 
-async fn api_health() -> Json<Health<'static>> {
+async fn api_health(State(state): State<AppState>) -> Json<Health<'static>> {
     Json(Health {
         status: "ok",
         application: "meridian",
         version: env!("CARGO_PKG_VERSION"),
         ephemeris: "swisseph-rs/0.1.9 + DE441 .se1",
         planet_set: "classical_septenary",
+        city_count: state.cities.len(),
     })
+}
+
+#[derive(Debug, Deserialize)]
+struct LocationQuery {
+    q: String,
+    limit: Option<usize>,
+}
+
+async fn api_locations(
+    State(state): State<AppState>,
+    Query(query): Query<LocationQuery>,
+) -> Json<Vec<crate::locations::City>> {
+    Json(state.cities.search(&query.q, query.limit.unwrap_or(8)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1015,6 +1034,7 @@ mod tests {
         ElectionRequest, ElectionTopic, SwissEphemerisProvider, TimeZoneSpec,
         TraditionalHouseSystem,
     };
+    use crate::locations::{City, CityIndex};
     use crate::store::{ChartRecord, Store};
     use crate::web::AppState;
 
@@ -1022,6 +1042,7 @@ mod tests {
         Ok(router(AppState::new(
             ChartCalculator::new(SwissEphemerisProvider::new("data/ephe")?),
             Store::open(":memory:")?,
+            CityIndex::test_fixture(),
         )))
     }
 
@@ -1051,6 +1072,7 @@ mod tests {
     async fn every_browser_workspace_has_a_live_route() -> Result<(), Box<dyn std::error::Error>> {
         let app = test_app()?;
         for path in [
+            "/charts/new",
             "/tools/ephemeris?start=2026-08-11&days=2&step=1",
             "/tools/timing",
             "/tools/relationships",
@@ -1062,6 +1084,109 @@ mod tests {
                 .await?;
             assert_eq!(response.status(), StatusCode::OK, "{path}");
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn location_search_supports_alternate_city_names()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = test_app()?
+            .oneshot(Request::get("/api/v1/locations?q=Milan").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await?;
+        let cities: Vec<City> = serde_json::from_slice(&body)?;
+        assert_eq!(cities.len(), 1);
+        assert_eq!(cities[0].name, "Milano");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn browser_chart_uses_canonical_atlas_location() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let app = test_app()?;
+        let body = concat!(
+            "title=Atlas+chart&purpose=natal&year=2000&month=1&day=1&time=12%3A00&",
+            "calendar=gregorian&city_id=3182164&house_system=whole_sign&",
+            "location_name=Ignored&latitude=0&longitude=0&elevation_m=0&",
+            "zone_mode=fixed&timezone=UTC&fixed_offset_minutes=0"
+        );
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/charts")
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        let id = response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.rsplit('/').next())
+            .ok_or_else(|| std::io::Error::other("chart redirect did not contain an id"))?;
+
+        let response = app
+            .oneshot(Request::get(format!("/api/v1/charts/{id}")).body(Body::empty())?)
+            .await?;
+        let body = to_bytes(response.into_body(), 2 * 1024 * 1024).await?;
+        let record: ChartRecord = serde_json::from_slice(&body)?;
+        let chart = &record.chart;
+        assert_eq!(chart.request.location_name, "Bergamo, Lombardy, Italy");
+        assert!((chart.request.coordinates.latitude - 45.696).abs() < f64::EPSILON);
+        assert!((chart.request.coordinates.longitude - 9.667).abs() < f64::EPSILON);
+        assert!((chart.request.coordinates.elevation_m - 249.0).abs() < f64::EPSILON);
+        assert!(matches!(
+            &chart.request.time_zone,
+            TimeZoneSpec::Iana { name, fold: None } if name == "Europe/Rome"
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn browser_chart_accepts_explicit_advanced_location_overrides()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = test_app()?;
+        let body = concat!(
+            "title=Surveyed+site&purpose=natal&year=2000&month=1&day=1&time=12%3A00&",
+            "calendar=gregorian&house_system=whole_sign&manual_coordinates=1&",
+            "location_name=Surveyed+site&latitude=45.7&longitude=9.6&elevation_m=310&",
+            "manual_timezone=1&zone_mode=fixed&fixed_offset_minutes=50"
+        );
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/charts")
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        let id = response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.rsplit('/').next())
+            .ok_or_else(|| std::io::Error::other("chart redirect did not contain an id"))?;
+
+        let response = app
+            .oneshot(Request::get(format!("/api/v1/charts/{id}")).body(Body::empty())?)
+            .await?;
+        let body = to_bytes(response.into_body(), 2 * 1024 * 1024).await?;
+        let record: ChartRecord = serde_json::from_slice(&body)?;
+        let request = &record.chart.request;
+        assert_eq!(request.location_name, "Surveyed site");
+        assert!((request.coordinates.latitude - 45.7).abs() < f64::EPSILON);
+        assert!((request.coordinates.longitude - 9.6).abs() < f64::EPSILON);
+        assert!((request.coordinates.elevation_m - 310.0).abs() < f64::EPSILON);
+        assert!(matches!(
+            &request.time_zone,
+            TimeZoneSpec::FixedOffset {
+                minutes_east: 50,
+                label: None
+            }
+        ));
         Ok(())
     }
 

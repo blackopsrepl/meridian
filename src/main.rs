@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use meridian::astro::{ChartCalculator, ChartRequest, SwissEphemerisProvider};
+use meridian::locations::CityIndex;
 use meridian::render::{WheelOptions, chart_csv, render_wheel};
 use meridian::store::Store;
 use meridian::web::{AppState, app};
@@ -36,6 +37,8 @@ enum Command {
         database: PathBuf,
         #[arg(long, env = "MERIDIAN_EPHE_PATH", default_value = "data/ephe")]
         ephemeris: PathBuf,
+        #[arg(long, env = "MERIDIAN_CITY_PATH", default_value = "data/geonames")]
+        cities: PathBuf,
     },
     /// Calculate one chart request from a JSON file.
     Chart {
@@ -70,7 +73,8 @@ async fn main() -> Result<()> {
             bind,
             database,
             ephemeris,
-        } => serve(bind, database, ephemeris).await,
+            cities,
+        } => serve(bind, database, ephemeris, cities).await,
         Command::Chart {
             request,
             format,
@@ -80,16 +84,28 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn serve(bind: SocketAddr, database: PathBuf, ephemeris: PathBuf) -> Result<()> {
+async fn serve(
+    bind: SocketAddr,
+    database: PathBuf,
+    ephemeris: PathBuf,
+    cities: PathBuf,
+) -> Result<()> {
     let provider = SwissEphemerisProvider::new(&ephemeris)
         .with_context(|| format!("could not open ephemeris at {}", ephemeris.display()))?;
     let store = Store::open(&database)
         .with_context(|| format!("could not open database at {}", database.display()))?;
-    let state = AppState::new(ChartCalculator::new(provider), store);
+    let city_index = CityIndex::load(&cities).with_context(|| {
+        format!(
+            "could not open the city atlas at {}; run `make data-cities`",
+            cities.display()
+        )
+    })?;
+    let city_count = city_index.len();
+    let state = AppState::new(ChartCalculator::new(provider), store, city_index);
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("could not bind {bind}"))?;
-    info!(address = %bind, "Meridian observatory ready");
+    info!(address = %bind, city_count, "Meridian observatory ready");
     axum::serve(listener, app(state))
         .with_graceful_shutdown(shutdown_signal())
         .await

@@ -13,6 +13,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::astro::ChartCalculator;
+use crate::locations::CityIndex;
 use crate::store::Store;
 
 pub use error::WebError;
@@ -22,14 +23,16 @@ pub use routes::router;
 pub struct AppState {
     pub calculator: Arc<ChartCalculator>,
     pub store: Store,
+    pub cities: CityIndex,
 }
 
 impl AppState {
     #[must_use]
-    pub fn new(calculator: ChartCalculator, store: Store) -> Self {
+    pub fn new(calculator: ChartCalculator, store: Store, cities: CityIndex) -> Self {
         Self {
             calculator: Arc::new(calculator),
             store,
+            cities,
         }
     }
 }

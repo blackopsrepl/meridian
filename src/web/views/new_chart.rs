@@ -4,7 +4,7 @@ use crate::astro::TraditionalHouseSystem;
 
 use super::layout::page;
 
-pub fn new_chart_page(default_purpose: &str) -> Markup {
+pub fn new_chart_page(default_purpose: &str, city_count: usize) -> Markup {
     page(
         "Cast a chart",
         "new",
@@ -51,7 +51,7 @@ pub fn new_chart_page(default_purpose: &str) -> Markup {
                 section class="form-card" {
                     header class="form-card-header" {
                         span class="step-number" { "02" }
-                        div { h2 { "Civil date and time" } p { "Signed years and the Julian calendar remain available for historical work." } }
+                        div { h2 { "Civil date and time" } p { "Signed years and the Julian calendar remain available; the selected city supplies its historical time zone." } }
                     }
                     div class="form-grid date-grid" {
                         label class="field" { span { "Year" } input type="number" name="year" value="2000" min="-12999" max="16999" required; }
@@ -63,40 +63,74 @@ pub fn new_chart_page(default_purpose: &str) -> Markup {
                             select name="calendar" { option value="gregorian" { "Gregorian" } option value="julian" { "Julian" } }
                         }
                     }
-                    div class="segmented-control" role="group" aria-label="Time zone mode" {
-                        label { input type="radio" name="zone_mode" value="iana" checked data-zone-mode; span { "IANA zone" } }
-                        label { input type="radio" name="zone_mode" value="fixed" data-zone-mode; span { "Fixed historical offset" } }
-                    }
-                    div class="form-grid two zone-panel" data-zone-panel="iana" {
-                        label class="field" {
-                            span { "IANA time zone" }
-                            input type="text" name="timezone" value="Europe/Rome" placeholder="Europe/Rome" autocomplete="off";
-                            small { "Historical daylight-saving rules are applied." }
-                        }
-                        label class="field" {
-                            span { "Repeated-time fold" }
-                            select name="fold" { option value="" { "Reject ambiguity" } option value="0" { "First occurrence" } option value="1" { "Second occurrence" } }
-                            small { "Only needed during a backward clock change." }
-                        }
-                    }
-                    div class="form-grid one zone-panel hidden" data-zone-panel="fixed" {
-                        label class="field" {
-                            span { "Minutes east of UTC" }
-                            input type="number" name="fixed_offset_minutes" value="0" min="-1440" max="1440";
-                            small { "Use negative values west of Greenwich. Local mean time is accepted." }
-                        }
-                    }
                 }
                 section class="form-card" {
                     header class="form-card-header" {
                         span class="step-number" { "03" }
-                        div { h2 { "Terrestrial place" } p { "Coordinates drive the angles and houses; no network atlas is consulted." } }
+                        div { h2 { "Terrestrial place" } p { "Choose a city; Meridian fills its coordinates, elevation, and IANA time zone from the local world atlas." } }
                     }
-                    div class="form-grid location-grid" {
-                        label class="field span-two" { span { "Place name" } input type="text" name="location_name" value="Bergamo, Italy" maxlength="160" required; }
-                        label class="field" { span { "Latitude" } input type="number" name="latitude" value="45.6983" min="-90" max="90" step="0.000001" required; small { "North positive" } }
-                        label class="field" { span { "Longitude" } input type="number" name="longitude" value="9.6773" min="-180" max="180" step="0.000001" required; small { "East positive" } }
-                        label class="field" { span { "Elevation (m)" } input type="number" name="elevation_m" value="249" min="-500" max="10000" step="1"; }
+                    div class="city-picker" data-city-picker {
+                        label class="field" for="city-search" {
+                            span { "City" }
+                            input id="city-search" type="search" placeholder="Start typing a city, e.g. Bergamo or New York" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="city-results" aria-expanded="false" data-city-search;
+                            small { (city_count) " cities and administrative seats · alternate and local names supported" }
+                        }
+                        input type="hidden" name="city_id" data-city-id;
+                        div id="city-results" class="city-results" role="listbox" hidden data-city-results {}
+                        div class="city-selection" hidden data-city-selection aria-live="polite" {
+                            div {
+                                strong data-city-name { "" }
+                                small data-city-meta { "" }
+                            }
+                            button type="button" class="city-clear" data-city-clear { "Change" }
+                        }
+                        p class="city-picker-status" role="status" aria-live="polite" data-city-status { "Choose one result from the local atlas." }
+                    }
+                    details class="location-overrides" {
+                        summary { span { "Advanced precision and historical overrides" } b { "Optional" } }
+                        div class="override-grid" {
+                            label class="override-toggle" {
+                                input type="checkbox" name="manual_coordinates" value="1" data-manual-coordinates;
+                                span { strong { "Override atlas coordinates" } small { "For a precisely surveyed birthplace or a place absent from the catalog." } }
+                            }
+                            fieldset class="override-fields" data-coordinate-fields {
+                                div class="form-grid location-grid" {
+                                    label class="field span-two" { span { "Place name" } input type="text" name="location_name" maxlength="160" placeholder="Exact site name"; }
+                                    label class="field" { span { "Latitude" } input type="number" name="latitude" min="-90" max="90" step="0.000001"; small { "North positive" } }
+                                    label class="field" { span { "Longitude" } input type="number" name="longitude" min="-180" max="180" step="0.000001"; small { "East positive" } }
+                                    label class="field" { span { "Elevation (m)" } input type="number" name="elevation_m" min="-500" max="10000" step="1"; }
+                                }
+                            }
+                            label class="field fold-field" {
+                                span { "Repeated clock time" }
+                                select name="fold" { option value="" { "Reject ambiguity" } option value="0" { "First occurrence" } option value="1" { "Second occurrence" } }
+                                small { "Only needed during a backward daylight-saving transition." }
+                            }
+                            label class="override-toggle" {
+                                input type="checkbox" name="manual_timezone" value="1" data-manual-timezone;
+                                span { strong { "Override atlas time zone" } small { "Use for local mean time or a documented historical offset." } }
+                            }
+                            fieldset class="override-fields" data-timezone-fields {
+                                div class="segmented-control" role="group" aria-label="Time zone mode" {
+                                    label { input type="radio" name="zone_mode" value="iana" checked data-zone-mode; span { "IANA zone" } }
+                                    label { input type="radio" name="zone_mode" value="fixed" data-zone-mode; span { "Fixed historical offset" } }
+                                }
+                                div class="form-grid one zone-panel" data-zone-panel="iana" {
+                                    label class="field" {
+                                        span { "IANA time zone" }
+                                        input type="text" name="timezone" placeholder="Europe/Rome" autocomplete="off";
+                                        small { "Historical daylight-saving rules are applied." }
+                                    }
+                                }
+                                div class="form-grid one zone-panel hidden" data-zone-panel="fixed" {
+                                    label class="field" {
+                                        span { "Minutes east of UTC" }
+                                        input type="number" name="fixed_offset_minutes" value="0" min="-1440" max="1440";
+                                        small { "Use negative values west of Greenwich. Local mean time is accepted." }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 details class="form-card advanced-options" {
