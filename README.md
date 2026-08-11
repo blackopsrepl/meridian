@@ -12,20 +12,24 @@ ephemeris when high-precision mode is requested.
 
 ## Run locally
 
-Requirements: Rust 1.95, `curl`, `sha256sum`, and standard POSIX utilities.
+Requirements: Rust 1.95, `curl`, `unzip`, `sha256sum`, and standard POSIX
+utilities.
 
 ```sh
 make setup
 make run
 ```
 
-`make setup` installs the complete long-range coefficient set (about 100 MB).
+`make setup` installs the complete long-range coefficient set (about 100 MB)
+and the local GeoNames world-city atlas. The current atlas snapshot contains
+more than 200,000 cities and administrative seats with alternate names,
+coordinates, elevation, population, and IANA time zones.
 For a faster present-day development setup, run `make data-current` followed by
 `cargo build --locked`; that smaller set covers 1800–2399.
 
 Then open <http://127.0.0.1:3001>. The database defaults to
-`data/meridian.sqlite3`; set `MERIDIAN_DATABASE`, `MERIDIAN_EPHE_PATH`, or
-`MERIDIAN_BIND` to override the defaults.
+`data/meridian.sqlite3`; set `MERIDIAN_DATABASE`, `MERIDIAN_EPHE_PATH`,
+`MERIDIAN_CITY_PATH`, or `MERIDIAN_BIND` to override the defaults.
 
 ## Surfaces
 
@@ -36,6 +40,8 @@ Then open <http://127.0.0.1:3001>. The database defaults to
 - Essential and accidental dignity, reception, sect, lots, antiscia,
   dodecatemoria, planetary days/hours, and traditional time-lord techniques
 - Date-bounded transit/event timelines and printable ephemeris tables
+- Local city autocomplete that resolves canonical coordinates and historical
+  time zones, with optional surveyed-coordinate and fixed-offset overrides
 - SQLite chart archive retaining exact inputs, resolved time, engine revision,
   coefficient revision, house system, and orb policy
 - HTML/SVG, JSON, and CSV output from the same calculation model
@@ -66,6 +72,7 @@ The local service exposes versioned JSON endpoints:
   directions, profections, firdaria, harmonics, and planetary hours
 - `GET /api/v1/relationships` — synastry, composite, or Davison results
 - `GET /api/v1/ephemeris` and `GET /api/v1/events` — tables and exact events
+- `GET /api/v1/locations?q={name}` — ranked local city and alternate-name search
 - `POST /api/v1/elections` — ranked electional search with testimony ledger
 
 `POST /api/v1/calculate` accepts the plain request in
@@ -101,6 +108,7 @@ chart fields from the example file.
 - Ambiguous civil times require an explicit fold; nonexistent clock times fail
 - Sect is calculated from the Sun's equatorial altitude, independent of houses
 - Only Sun through Saturn can inhabit the `Planet` type
+- Chart wheels are oriented with the Midheaven fixed at 12 o'clock
 
 Run the complete quality gate with `make check`.
 

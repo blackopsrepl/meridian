@@ -14,6 +14,19 @@ return a structured `{ "error", "status" }` body on API failure.
 - `GET /api/v1/charts/{id}`
 - `DELETE /api/v1/charts/{id}`
 
+Browser chart creation resolves the submitted GeoNames `city_id` against the
+server's local atlas. Unless an explicit manual override is enabled, posted
+coordinate or time-zone fields are ignored and the canonical atlas values are
+stored in the chart request.
+
+## Locations
+
+`GET /api/v1/locations?q={name}&limit={count}` searches canonical, ASCII, and
+alternate city names together with country and first-level administrative
+names. Queries shorter than two characters return no results; `limit` is
+capped at 20. Results include the stable GeoNames identifier, display name,
+WGS84 coordinates, elevation, population, and IANA time zone.
+
 ## Timing
 
 `GET /api/v1/charts/{id}/timing` requires `technique` and `target=YYYY-MM-DD`.

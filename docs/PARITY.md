@@ -20,8 +20,8 @@ horoscopes.
 | Ephemeris tables | Daily/monthly septenary tables in HTML, JSON, and CSV |
 | House-system selection | Whole-sign, equal, Porphyry, Alcabitius, Placidus, Regiomontanus, Campanus, Morinus |
 | Aspect/orb options | Five Ptolemaic aspects with per-aspect and luminary orbs |
-| Chart drawing PDF/data PDF | Print-ready report plus SVG, JSON, and CSV downloads |
-| Atlas and time-zone conversion | Retained coordinates plus explicit IANA/fixed-offset conversion and return relocation |
+| Chart drawing PDF/data PDF | Print-ready MC-at-top report plus SVG, JSON, and CSV downloads |
+| Atlas and time-zone conversion | Local GeoNames city/alternate-name search, automatic IANA zone resolution, advanced coordinate/offset overrides, and return relocation |
 
 ## Deliberate exclusions
 
