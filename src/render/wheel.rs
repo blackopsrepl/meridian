@@ -25,7 +25,7 @@ pub fn render_wheel(chart: &Chart, options: WheelOptions) -> String {
     let zodiac_inner = size * 0.382;
     let houses_inner = size * 0.295;
     let aspect_radius = size * 0.225;
-    let ascendant = chart.houses.ascendant;
+    let top_longitude = chart.houses.midheaven;
     let mut svg = format!(
         r#"<svg class="chart-wheel" viewBox="0 0 {size:.0} {size:.0}" role="img" aria-labelledby="wheel-title wheel-description" xmlns="http://www.w3.org/2000/svg"><title id="wheel-title">{}</title><desc id="wheel-description">Classical septenary chart wheel with houses, planets, lots, and Ptolemaic aspects.</desc><defs><filter id="planet-shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".18"/></filter></defs>"#,
         xml_escape(&chart.request.title)
@@ -33,18 +33,18 @@ pub fn render_wheel(chart: &Chart, options: WheelOptions) -> String {
     svg.push_str(&format!(
         r#"<circle class="wheel-paper" cx="{center:.3}" cy="{center:.3}" r="{outer:.3}"/>"#
     ));
-    draw_zodiac(&mut svg, center, outer, zodiac_inner, ascendant);
-    draw_degree_ticks(&mut svg, center, outer, zodiac_inner, ascendant);
+    draw_zodiac(&mut svg, center, outer, zodiac_inner, top_longitude);
+    draw_degree_ticks(&mut svg, center, outer, zodiac_inner, top_longitude);
     draw_houses(
         &mut svg,
         chart,
         center,
         zodiac_inner,
         houses_inner,
-        ascendant,
+        top_longitude,
     );
     if options.show_aspects {
-        draw_aspects(&mut svg, chart, center, aspect_radius, ascendant);
+        draw_aspects(&mut svg, chart, center, aspect_radius, top_longitude);
     }
     draw_planets(
         &mut svg,
@@ -52,22 +52,22 @@ pub fn render_wheel(chart: &Chart, options: WheelOptions) -> String {
         center,
         zodiac_inner,
         houses_inner,
-        ascendant,
+        top_longitude,
     );
     if options.show_lots {
-        draw_lots(&mut svg, chart, center, houses_inner, ascendant);
+        draw_lots(&mut svg, chart, center, houses_inner, top_longitude);
     }
     draw_center(&mut svg, chart, center, aspect_radius);
     svg.push_str("</svg>");
     svg
 }
 
-fn draw_zodiac(svg: &mut String, center: f64, outer: f64, inner: f64, ascendant: f64) {
+fn draw_zodiac(svg: &mut String, center: f64, outer: f64, inner: f64, top_longitude: f64) {
     const COLORS: [&str; 4] = ["#b74e3a", "#4d8068", "#b68a35", "#416e85"];
     for sign in ZodiacSign::ALL {
         let start = f64::from(sign.index()) * 30.0;
         let end = start + 30.0;
-        let path = annular_sector(center, outer, inner, start, end, ascendant);
+        let path = annular_sector(center, outer, inner, start, end, top_longitude);
         let element_index = match sign.element() {
             crate::astro::Element::Fire => 0,
             crate::astro::Element::Earth => 1,
@@ -78,7 +78,12 @@ fn draw_zodiac(svg: &mut String, center: f64, outer: f64, inner: f64, ascendant:
             r#"<path class="zodiac-sector" d="{path}" fill="{}"/>"#,
             COLORS[element_index]
         ));
-        let (x, y) = polar(center, f64::midpoint(outer, inner), start + 15.0, ascendant);
+        let (x, y) = polar(
+            center,
+            f64::midpoint(outer, inner),
+            start + 15.0,
+            top_longitude,
+        );
         svg.push_str(&format!(
             r#"<text class="zodiac-glyph" x="{x:.3}" y="{y:.3}">{}</text>"#,
             sign.glyph()
@@ -89,7 +94,7 @@ fn draw_zodiac(svg: &mut String, center: f64, outer: f64, inner: f64, ascendant:
     ));
 }
 
-fn draw_degree_ticks(svg: &mut String, center: f64, outer: f64, inner: f64, ascendant: f64) {
+fn draw_degree_ticks(svg: &mut String, center: f64, outer: f64, inner: f64, top_longitude: f64) {
     for degree in 0..360 {
         let major = degree % 10 == 0;
         let sign_edge = degree % 30 == 0;
@@ -100,8 +105,8 @@ fn draw_degree_ticks(svg: &mut String, center: f64, outer: f64, inner: f64, asce
         } else {
             4.0
         };
-        let (x1, y1) = polar(center, outer, f64::from(degree), ascendant);
-        let (x2, y2) = polar(center, outer - length, f64::from(degree), ascendant);
+        let (x1, y1) = polar(center, outer, f64::from(degree), top_longitude);
+        let (x2, y2) = polar(center, outer - length, f64::from(degree), top_longitude);
         svg.push_str(&format!(
             r#"<line class="degree-tick{}" x1="{x1:.3}" y1="{y1:.3}" x2="{x2:.3}" y2="{y2:.3}"/>"#,
             if major { " major" } else { "" }
@@ -115,11 +120,11 @@ fn draw_houses(
     center: f64,
     outer: f64,
     inner: f64,
-    ascendant: f64,
+    top_longitude: f64,
 ) {
     for (index, cusp) in chart.houses.cusps.iter().enumerate() {
-        let (x1, y1) = polar(center, outer, *cusp, ascendant);
-        let (x2, y2) = polar(center, inner, *cusp, ascendant);
+        let (x1, y1) = polar(center, outer, *cusp, top_longitude);
+        let (x2, y2) = polar(center, inner, *cusp, top_longitude);
         let angular = matches!(index, 0 | 3 | 6 | 9);
         svg.push_str(&format!(
             r#"<line class="house-cusp{}" x1="{x1:.3}" y1="{y1:.3}" x2="{x2:.3}" y2="{y2:.3}"/>"#,
@@ -127,20 +132,20 @@ fn draw_houses(
         ));
         let next = chart.houses.cusps[(index + 1) % 12];
         let midpoint = midpoint_forward(*cusp, next);
-        let (tx, ty) = polar(center, outer - 18.0, midpoint, ascendant);
+        let (tx, ty) = polar(center, outer - 18.0, midpoint, top_longitude);
         svg.push_str(&format!(
             r#"<text class="house-number" x="{tx:.3}" y="{ty:.3}">{}</text>"#,
             index + 1
         ));
     }
-    let (asc_x, asc_y) = polar(center, outer + 15.0, chart.houses.ascendant, ascendant);
-    let (mc_x, mc_y) = polar(center, outer + 15.0, chart.houses.midheaven, ascendant);
+    let (asc_x, asc_y) = polar(center, outer + 15.0, chart.houses.ascendant, top_longitude);
+    let (mc_x, mc_y) = polar(center, outer + 15.0, chart.houses.midheaven, top_longitude);
     svg.push_str(&format!(
         r#"<text class="angle-label" x="{asc_x:.3}" y="{asc_y:.3}">ASC</text><text class="angle-label" x="{mc_x:.3}" y="{mc_y:.3}">MC</text>"#
     ));
 }
 
-fn draw_aspects(svg: &mut String, chart: &Chart, center: f64, radius: f64, ascendant: f64) {
+fn draw_aspects(svg: &mut String, chart: &Chart, center: f64, radius: f64, top_longitude: f64) {
     svg.push_str("<g class=\"aspect-field\">");
     for aspect in &chart.aspects {
         let Some(left) = point_longitude(chart, aspect.left) else {
@@ -149,8 +154,8 @@ fn draw_aspects(svg: &mut String, chart: &Chart, center: f64, radius: f64, ascen
         let Some(right) = point_longitude(chart, aspect.right) else {
             continue;
         };
-        let (x1, y1) = polar(center, radius, left, ascendant);
-        let (x2, y2) = polar(center, radius, right, ascendant);
+        let (x1, y1) = polar(center, radius, left, top_longitude);
+        let (x2, y2) = polar(center, radius, right, top_longitude);
         let class = match aspect.kind {
             AspectKind::Conjunction => "conjunction",
             AspectKind::Sextile | AspectKind::Trine => "harmonious",
@@ -170,7 +175,7 @@ fn draw_planets(
     center: f64,
     outer: f64,
     inner: f64,
-    ascendant: f64,
+    top_longitude: f64,
 ) {
     let mut planets = chart.positions.iter().collect::<Vec<_>>();
     planets.sort_by(|left, right| left.longitude.total_cmp(&right.longitude));
@@ -190,7 +195,7 @@ fn draw_planets(
             center,
             outer,
             inner,
-            ascendant,
+            top_longitude,
             collision_level,
         );
     }
@@ -203,13 +208,13 @@ fn draw_planet(
     center: f64,
     outer: f64,
     inner: f64,
-    ascendant: f64,
+    top_longitude: f64,
     collision_level: u8,
 ) {
     let anchor_radius = outer - 12.0;
     let label_radius = inner + 28.0 + f64::from(collision_level) * 20.0;
-    let (anchor_x, anchor_y) = polar(center, anchor_radius, position.longitude, ascendant);
-    let (x, y) = polar(center, label_radius, position.longitude, ascendant);
+    let (anchor_x, anchor_y) = polar(center, anchor_radius, position.longitude, top_longitude);
+    let (x, y) = polar(center, label_radius, position.longitude, top_longitude);
     svg.push_str(&format!(
         r#"<g class="planet" data-planet="{}"><line class="planet-leader" x1="{anchor_x:.3}" y1="{anchor_y:.3}" x2="{x:.3}" y2="{y:.3}"/><circle class="planet-disc" cx="{x:.3}" cy="{y:.3}" r="15" filter="url(#planet-shadow)"/><text class="planet-glyph" x="{x:.3}" y="{y:.3}">{}</text><text class="planet-degree" x="{x:.3}" y="{:.3}">{:02.0}°{:02.0}′{}</text></g>"#,
         position.planet.name().to_lowercase(),
@@ -221,14 +226,14 @@ fn draw_planet(
     ));
 }
 
-fn draw_lots(svg: &mut String, chart: &Chart, center: f64, radius: f64, ascendant: f64) {
+fn draw_lots(svg: &mut String, chart: &Chart, center: f64, radius: f64, top_longitude: f64) {
     for lot in &chart.lots {
         let glyph = match lot.kind {
             LotKind::Fortune => "⊗",
             LotKind::Spirit => "⊙",
             _ => continue,
         };
-        let (x, y) = polar(center, radius - 18.0, lot.longitude, ascendant);
+        let (x, y) = polar(center, radius - 18.0, lot.longitude, top_longitude);
         svg.push_str(&format!(
             r#"<g class="lot"><circle cx="{x:.3}" cy="{y:.3}" r="9"/><text x="{x:.3}" y="{y:.3}">{glyph}</text></g>"#
         ));
@@ -255,8 +260,8 @@ fn point_longitude(chart: &Chart, point: PointId) -> Option<f64> {
     }
 }
 
-fn polar(center: f64, radius: f64, longitude: f64, ascendant: f64) -> (f64, f64) {
-    let angle = (180.0 - (longitude - ascendant)).to_radians();
+fn polar(center: f64, radius: f64, longitude: f64, top_longitude: f64) -> (f64, f64) {
+    let angle = (90.0 - (longitude - top_longitude)).to_radians();
     (center + radius * angle.cos(), center - radius * angle.sin())
 }
 
@@ -266,12 +271,12 @@ fn annular_sector(
     inner: f64,
     start: f64,
     end: f64,
-    ascendant: f64,
+    top_longitude: f64,
 ) -> String {
-    let (outer_start_x, outer_start_y) = polar(center, outer, start, ascendant);
-    let (outer_end_x, outer_end_y) = polar(center, outer, end, ascendant);
-    let (inner_end_x, inner_end_y) = polar(center, inner, end, ascendant);
-    let (inner_start_x, inner_start_y) = polar(center, inner, start, ascendant);
+    let (outer_start_x, outer_start_y) = polar(center, outer, start, top_longitude);
+    let (outer_end_x, outer_end_y) = polar(center, outer, end, top_longitude);
+    let (inner_end_x, inner_end_y) = polar(center, inner, end, top_longitude);
+    let (inner_start_x, inner_start_y) = polar(center, inner, start, top_longitude);
     format!(
         "M {outer_start_x:.3} {outer_start_y:.3} A {outer:.3} {outer:.3} 0 0 0 {outer_end_x:.3} {outer_end_y:.3} L {inner_end_x:.3} {inner_end_y:.3} A {inner:.3} {inner:.3} 0 0 1 {inner_start_x:.3} {inner_start_y:.3} Z"
     )
@@ -296,7 +301,7 @@ fn xml_escape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{WheelOptions, render_wheel};
+    use super::{WheelOptions, polar, render_wheel};
     use crate::astro::{
         Calendar, ChartCalculator, ChartPurpose, ChartRequest, CivilDateTime, Coordinates,
         SwissEphemerisProvider, TimeZoneSpec, TraditionalHouseSystem,
@@ -335,5 +340,12 @@ mod tests {
         assert!(svg.contains("&lt;Classical&gt;"));
         assert!(!svg.contains("Uranus"));
         Ok(())
+    }
+
+    #[test]
+    fn midheaven_is_oriented_to_twelve_oclock() {
+        let (x, y) = polar(100.0, 50.0, 279.611, 279.611);
+        assert!((x - 100.0).abs() < 1e-10);
+        assert!((y - 50.0).abs() < 1e-10);
     }
 }
