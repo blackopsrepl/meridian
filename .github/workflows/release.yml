@@ -11,7 +11,8 @@ permissions:
 jobs:
   prepare-data:
     name: Prepare verified offline data
-    runs-on: ubuntu-22.04
+    if: github.server_url == 'https://github.com'
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-22.04' || 'rust' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -69,7 +70,8 @@ jobs:
             runner: windows-2025
             args: --bundles nsis --config tauri.windows-signing.conf.json
             rust-targets: ""
-    runs-on: ${{ matrix.runner }}
+    if: github.server_url == 'https://github.com'
+    runs-on: ${{ github.server_url == 'https://github.com' && matrix.runner || 'rust' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -206,7 +208,8 @@ jobs:
   publish:
     name: Publish complete release
     needs: build
-    runs-on: ubuntu-22.04
+    if: github.server_url == 'https://github.com'
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-22.04' || 'rust' }}
     permissions:
       contents: write
     steps:
