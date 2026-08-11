@@ -10,6 +10,28 @@ through the stateless pure-Rust `swisseph-rs` engine. Meridian never calls a
 remote astrology service and rejects silent fallback to an analytical
 ephemeris when high-precision mode is requested.
 
+## Install
+
+Download the installer for your operating system from the latest GitHub
+release:
+
+- Windows: the signed `-setup.exe` installer
+- macOS: the signed and notarized universal `.dmg`
+- Linux: the signed `.rpm` for Fedora, RHEL-compatible distributions, and
+  openSUSE; `.deb` for Debian/Ubuntu; or `.AppImage` for portable use
+
+Every installer contains the complete pinned Swiss Ephemeris coefficient set
+and the verified GeoNames atlas. Meridian does not contact an astrology or
+location service and remains fully functional without a network connection.
+On Windows 10 and 11, the required WebView2 runtime is normally already part of
+the operating system. If it is absent or too old, the installer visibly runs
+Microsoft's WebView2 bootstrapper before Meridian starts.
+
+Meridian stores the chart archive in the operating system's per-user
+application-data directory. Application resources remain read-only, so
+upgrading or uninstalling the program does not silently mix user data with the
+installation.
+
 ## Develop locally
 
 Requirements: Rust 1.95, Tauri CLI 2.11.4, `curl`, `unzip`, `sha256sum`, and
@@ -81,6 +103,9 @@ internal contract for tests and integrations inside the desktop process.
 - Chart wheels are oriented with the Midheaven fixed at 12 o'clock
 
 Run the complete quality gate with `make check`.
+
+`docs/DISTRIBUTION.md` defines the verified GitHub release process, offline data
+contract, signing credentials, and platform artifacts.
 
 ## Licensing
 

@@ -1,0 +1,238 @@
+name: Release desktop installers
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-data:
+    name: Prepare verified offline data
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Match tag and application versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_version=${GITHUB_REF_NAME#v}
+          cargo_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          tauri_version=$(jq -r .version tauri.conf.json)
+          test "$tag_version" = "$cargo_version"
+          test "$tag_version" = "$tauri_version"
+
+      - name: Fetch the complete offline data set
+        run: |
+          ./tools/fetch-ephemeris --all
+          ./tools/fetch-geonames
+          python tools/verify-release-data
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meridian-offline-data
+          path: |
+            data/ephe/*.se1
+            data/geonames/*.txt
+            data/geonames/SOURCE
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: prepare-data
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86-64
+            runner: ubuntu-22.04
+            args: --bundles appimage,deb,rpm
+            rust-targets: ""
+          - name: macOS universal
+            runner: macos-14
+            args: --target universal-apple-darwin --bundles dmg
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - name: Windows x86-64
+            runner: windows-2025
+            args: --bundles nsis --config tauri.windows-signing.conf.json
+            rust-targets: ""
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: meridian-offline-data
+          path: data
+
+      - name: Verify bundled data
+        run: python tools/verify-release-data
+
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the pinned Tauri CLI
+        run: cargo install tauri-cli --version 2.11.4 --locked
+
+      - name: Install Linux bundle dependencies
+        if: matrix.runner == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+
+      - name: Require Linux package signing key
+        if: runner.os == 'Linux'
+        env:
+          LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
+        run: test -n "$LINUX_GPG_PRIVATE_KEY"
+
+      - name: Require macOS signing and notarization credentials
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$APPLE_CERTIFICATE"
+          test -n "$APPLE_CERTIFICATE_PASSWORD"
+          test -n "$APPLE_SIGNING_IDENTITY"
+          test -n "$APPLE_ID"
+          test -n "$APPLE_PASSWORD"
+          test -n "$APPLE_TEAM_ID"
+
+      - name: Import Windows signing certificate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            throw "WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD are required"
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "meridian-signing.pfx"
+          $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate `
+            -FilePath $certificatePath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password $password
+          $configuration = @{
+            bundle = @{
+              windows = @{
+                certificateThumbprint = $certificate.Thumbprint
+                digestAlgorithm = "sha256"
+                timestampUrl = "http://timestamp.digicert.com"
+              }
+            }
+          }
+          $configuration | ConvertTo-Json -Depth 4 | Set-Content tauri.windows-signing.conf.json
+
+      - id: package
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: v__VERSION__
+          releaseName: Meridian v__VERSION__
+          releaseBody: All installers include the complete ephemeris and city atlas for offline use.
+          generateReleaseNotes: true
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Sign and replace the RPM release asset
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          signing_home="$RUNNER_TEMP/meridian-rpm-gnupg"
+          private_key="$RUNNER_TEMP/meridian-rpm-private-key.gpg"
+          public_key="$RUNNER_TEMP/meridian-rpm-signing-key.asc"
+          trap 'rm -f "$private_key"' EXIT
+          mkdir -m 0700 "$signing_home"
+          printf '%s' "$LINUX_GPG_PRIVATE_KEY" | base64 --decode > "$private_key"
+          GNUPGHOME="$signing_home" gpg --batch --import "$private_key"
+          fingerprint=$(GNUPGHOME="$signing_home" gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
+          test -n "$fingerprint"
+          rpm_path=$(find target/release/bundle/rpm -maxdepth 1 -type f -name '*.rpm' -print -quit)
+          test -n "$rpm_path"
+          GNUPGHOME="$signing_home" rpmsign --addsign \
+            --define "_gpg_name $fingerprint" \
+            --define "_gpg_path $signing_home" \
+            "$rpm_path"
+          signature=$(rpm -qp --qf '%{RSAHEADER:pgpsig}' "$rpm_path")
+          test -n "$signature"
+          test "$signature" != "(none)"
+          GNUPGHOME="$signing_home" gpg --batch --armor --export "$fingerprint" > "$public_key"
+          gh release upload "$GITHUB_REF_NAME" "$rpm_path" --clobber
+          gh release upload "$GITHUB_REF_NAME" "$public_key#Meridian RPM signing key" --clobber
+
+      - id: attestation-paths
+        name: Prepare installer paths for attestation
+        shell: bash
+        env:
+          ARTIFACT_PATHS_JSON: ${{ steps.package.outputs.artifactPaths }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          paths = json.loads(os.environ["ARTIFACT_PATHS_JSON"])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("paths<<MERIDIAN_PATHS\n")
+              output.write("\n".join(paths))
+              output.write("\nMERIDIAN_PATHS\n")
+          PY
+
+      - uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.attestation-paths.outputs.paths }}
+
+  publish:
+    name: Publish complete release
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the assembled draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
