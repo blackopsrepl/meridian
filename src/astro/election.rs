@@ -68,6 +68,12 @@ impl ElectionTopic {
     }
 }
 
+impl std::fmt::Display for ElectionTopic {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.name())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ElectionRequest {
     pub title: String,

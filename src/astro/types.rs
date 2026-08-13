@@ -235,6 +235,12 @@ pub enum Element {
     Water,
 }
 
+impl fmt::Display for Element {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Modality {
@@ -243,11 +249,23 @@ pub enum Modality {
     Mutable,
 }
 
+impl fmt::Display for Modality {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Sect {
     Day,
     Night,
+}
+
+impl fmt::Display for Sect {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -291,12 +309,36 @@ impl TraditionalHouseSystem {
     }
 }
 
+impl fmt::Display for TraditionalHouseSystem {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.name())
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Calendar {
     #[default]
     Gregorian,
     Julian,
+}
+
+impl Calendar {
+    pub const ALL: [Self; 2] = [Self::Gregorian, Self::Julian];
+
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Gregorian => "Gregorian",
+            Self::Julian => "Julian",
+        }
+    }
+}
+
+impl fmt::Display for Calendar {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.name())
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -308,6 +350,33 @@ pub enum ChartPurpose {
     Horary,
     Electional,
     Mundane,
+}
+
+impl ChartPurpose {
+    pub const ALL: [Self; 5] = [
+        Self::Natal,
+        Self::Event,
+        Self::Horary,
+        Self::Electional,
+        Self::Mundane,
+    ];
+
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Natal => "Natal",
+            Self::Event => "Event",
+            Self::Horary => "Horary",
+            Self::Electional => "Electional",
+            Self::Mundane => "Mundane",
+        }
+    }
+}
+
+impl fmt::Display for ChartPurpose {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.name())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
