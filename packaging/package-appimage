@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+output_directory=${MERIDIAN_PACKAGE_OUTPUT:-dist}
+runtime_directory=target/packaging
+runtime_path="$runtime_directory/runtime-x86_64"
+runtime_sha256=1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf
+runtime_url=https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
+
+mkdir -p "$runtime_directory" "$output_directory"
+if [[ ! -f "$runtime_path" ]]; then
+  download_path=$(mktemp "$runtime_directory/runtime-x86_64.XXXXXX")
+  curl --fail --location --show-error --output "$download_path" "$runtime_url"
+  printf '%s  %s\n' "$runtime_sha256" "$download_path" | sha256sum --check
+  chmod 0755 "$download_path"
+  mv "$download_path" "$runtime_path"
+else
+  printf '%s  %s\n' "$runtime_sha256" "$runtime_path" | sha256sum --check
+fi
+
+export LDAI_RUNTIME_FILE
+LDAI_RUNTIME_FILE=$(realpath "$runtime_path")
+cargo packager --release --formats appimage --out-dir "$output_directory"

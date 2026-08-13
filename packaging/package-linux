@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+output_directory=${MERIDIAN_PACKAGE_OUTPUT:-dist}
+package_config=${MERIDIAN_NFPM_CONFIG:-packaging/nfpm.yaml}
+version=${MERIDIAN_VERSION:-$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)}
+
+test -x target/release/meridian
+command -v nfpm >/dev/null
+mkdir -p "$output_directory"
+
+export MERIDIAN_VERSION="$version"
+nfpm package \
+  --config "$package_config" \
+  --packager deb \
+  --target "$output_directory/meridian_${version}_amd64.deb"
+nfpm package \
+  --config "$package_config" \
+  --packager rpm \
+  --target "$output_directory/meridian-${version}-1.x86_64.rpm"

@@ -15,10 +15,16 @@ verify-data:
 	python3 tools/verify-release-data
 
 run:
-	cargo tauri dev
+	cargo run --locked --bin meridian
 
 bundle: verify-data
-	cargo tauri build
+	cargo build --locked --release --bin meridian
+	@case "$$(uname -s)" in \
+		Linux) ./packaging/package-appimage && ./packaging/package-linux ;; \
+		Darwin) cargo packager --release --formats dmg --out-dir dist ;; \
+		MINGW*|MSYS*|CYGWIN*) cargo packager --release --formats nsis --out-dir dist ;; \
+		*) echo "Unsupported packaging host: $$(uname -s)" >&2; exit 1 ;; \
+	esac
 
 test:
 	cargo test --locked --all-targets

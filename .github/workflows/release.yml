@@ -8,11 +8,17 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.95.0"
+  CARGO_PACKAGER_VERSION: "0.11.8"
+  NFPM_VERSION: "2.47.0"
+
 jobs:
   prepare-data:
     name: Prepare verified offline data
     if: github.server_url == 'https://github.com'
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-22.04' || 'rust' }}
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -20,15 +26,13 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Match tag and application versions
+      - name: Match tag and Cargo versions
         shell: bash
         run: |
           set -euo pipefail
           tag_version=${GITHUB_REF_NAME#v}
           cargo_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
-          tauri_version=$(jq -r .version tauri.conf.json)
           test "$tag_version" = "$cargo_version"
-          test "$tag_version" = "$tauri_version"
 
       - name: Fetch the complete offline data set
         run: |
@@ -49,8 +53,9 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     needs: prepare-data
+    if: github.server_url == 'https://github.com'
     permissions:
-      contents: write
+      contents: read
       id-token: write
       attestations: write
       artifact-metadata: write
@@ -60,18 +65,17 @@ jobs:
         include:
           - name: Linux x86-64
             runner: ubuntu-22.04
-            args: --bundles appimage,deb,rpm
+            platform: linux
             rust-targets: ""
           - name: macOS universal
             runner: macos-14
-            args: --target universal-apple-darwin --bundles dmg
+            platform: macos
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
           - name: Windows x86-64
             runner: windows-2025
-            args: --bundles nsis --config tauri.windows-signing.conf.json
+            platform: windows
             rust-targets: ""
-    if: github.server_url == 'https://github.com'
-    runs-on: ${{ github.server_url == 'https://github.com' && matrix.runner || 'rust' }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -93,127 +97,234 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install the pinned Tauri CLI
-        run: cargo install tauri-cli --version 2.11.4 --locked
-
-      - name: Install Linux bundle dependencies
-        if: matrix.runner == 'ubuntu-22.04'
+      - name: Install native Linux build dependencies
+        if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+          sudo apt-get install --yes \
+            desktop-file-utils \
+            libdbus-1-dev \
+            libudev-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            pkg-config \
+            rpm
 
-      - name: Require Linux package signing key
-        if: runner.os == 'Linux'
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --version "$CARGO_PACKAGER_VERSION" --locked
+        shell: bash
+
+      - name: Build Linux application
+        if: matrix.platform == 'linux'
+        run: cargo build --locked --release --bin meridian
+
+      - name: Build AppImage
+        if: matrix.platform == 'linux'
+        run: ./packaging/package-appimage
+
+      - name: Install nFPM
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          base_url="https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/nfpm-checksums.txt" "$base_url/checksums.txt"
+          cd "$RUNNER_TEMP"
+          sha256sum --ignore-missing --check nfpm-checksums.txt
+          tar --extract --gzip --file "$archive" nfpm
+          sudo install -m 0755 nfpm /usr/local/bin/nfpm
+
+      - name: Prepare optional RPM signing
+        if: matrix.platform == 'linux'
+        shell: bash
         env:
           LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
-        run: test -n "$LINUX_GPG_PRIVATE_KEY"
+        run: |
+          set -euo pipefail
+          echo "MERIDIAN_NFPM_CONFIG=packaging/nfpm.yaml" >> "$GITHUB_ENV"
+          if [[ -z "$LINUX_GPG_PRIVATE_KEY" ]]; then
+            exit 0
+          fi
+          umask 077
+          key_path="$RUNNER_TEMP/meridian-rpm-private-key.gpg"
+          signed_config="$RUNNER_TEMP/meridian-nfpm-signed.yaml"
+          printf '%s' "$LINUX_GPG_PRIVATE_KEY" | base64 --decode > "$key_path"
+          cp packaging/nfpm.yaml "$signed_config"
+          printf '\nrpm:\n  signature:\n    key_file: %s\n' "$key_path" >> "$signed_config"
+          echo "MERIDIAN_NFPM_CONFIG=$signed_config" >> "$GITHUB_ENV"
+          echo "MERIDIAN_RPM_SIGNED=true" >> "$GITHUB_ENV"
 
-      - name: Import Windows signing certificate
-        if: runner.os == 'Windows'
+          signing_home="$RUNNER_TEMP/meridian-rpm-gnupg"
+          mkdir -m 0700 "$signing_home"
+          GNUPGHOME="$signing_home" gpg --batch --import "$key_path"
+          fingerprint=$(GNUPGHOME="$signing_home" gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
+          test -n "$fingerprint"
+          mkdir -p dist
+          GNUPGHOME="$signing_home" gpg --batch --armor --export "$fingerprint" > dist/meridian-rpm-signing-key.asc
+
+      - name: Build DEB and RPM packages
+        if: matrix.platform == 'linux'
+        run: ./packaging/package-linux
+
+      - name: Inspect Linux packages
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          appimage=$(find dist -maxdepth 1 -type f -name '*.AppImage' -print -quit)
+          deb=$(find dist -maxdepth 1 -type f -name '*.deb' -print -quit)
+          rpm_package=$(find dist -maxdepth 1 -type f -name '*.rpm' -print -quit)
+          test -n "$appimage"
+          test -n "$deb"
+          test -n "$rpm_package"
+          desktop-file-validate packaging/meridian.desktop
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb" | grep -q 'usr/share/meridian/data/ephe'
+          rpm -qpi "$rpm_package"
+          rpm -qlp "$rpm_package" | grep -q '/usr/share/meridian/data/ephe'
+          if [[ "${MERIDIAN_RPM_SIGNED:-}" == "true" ]]; then
+            rpm -Kv "$rpm_package" 2>&1 | grep -q 'Signature'
+          fi
+
+          appimage_check="$RUNNER_TEMP/meridian-appimage-check"
+          mkdir -p "$appimage_check"
+          appimage=$(realpath "$appimage")
+          chmod +x "$appimage"
+          cd "$appimage_check"
+          "$appimage" --appimage-extract >/dev/null
+          test -d squashfs-root/usr/lib/meridian/data/ephe
+          test -d squashfs-root/usr/lib/meridian/data/geonames
+
+      - name: Build universal macOS application
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --bin meridian --target aarch64-apple-darwin
+          cargo build --locked --release --bin meridian --target x86_64-apple-darwin
+          mkdir -p target/universal-apple-darwin/release
+          lipo -create \
+            target/aarch64-apple-darwin/release/meridian \
+            target/x86_64-apple-darwin/release/meridian \
+            -output target/universal-apple-darwin/release/meridian
+          lipo -info target/universal-apple-darwin/release/meridian
+          cargo packager \
+            --release \
+            --target universal-apple-darwin \
+            --formats dmg \
+            --out-dir dist
+
+      - name: Inspect macOS application
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg=$(find dist -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          test -n "$dmg"
+          mount_point="$RUNNER_TEMP/meridian-dmg"
+          mkdir -p "$mount_point"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "$dmg"
+          app=$(find "$mount_point" -maxdepth 1 -type d -name '*.app' -print -quit)
+          test -n "$app"
+          codesign --verify --deep --strict "$app"
+          test -d "$app/Contents/Resources/data/ephe"
+          test -d "$app/Contents/Resources/data/geonames"
+          hdiutil detach "$mount_point"
+
+      - name: Build Windows application
+        if: matrix.platform == 'windows'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
-            throw "WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD are required"
+          cargo build --locked --release --bin meridian
+          if ($env:WINDOWS_CERTIFICATE -and $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            $certificatePath = Join-Path $env:RUNNER_TEMP "meridian-signing.pfx"
+            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+            $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+              Where-Object FullName -Match '\\x64\\' |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+            if (-not $signTool) { throw "signtool.exe was not found" }
+            & $signTool sign /f $certificatePath /p $env:WINDOWS_CERTIFICATE_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 target/release/meridian.exe
+            "MERIDIAN_WINDOWS_SIGNTOOL=$signTool" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "MERIDIAN_WINDOWS_CERTIFICATE=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "MERIDIAN_WINDOWS_SIGNED=true" | Out-File -FilePath $env:GITHUB_ENV -Append
           }
-          $certificatePath = Join-Path $env:RUNNER_TEMP "meridian-signing.pfx"
-          $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
-          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
-          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-          $certificate = Import-PfxCertificate `
-            -FilePath $certificatePath `
-            -CertStoreLocation Cert:\CurrentUser\My `
-            -Password $password
-          $configuration = @{
-            bundle = @{
-              windows = @{
-                certificateThumbprint = $certificate.Thumbprint
-                digestAlgorithm = "sha256"
-                timestampUrl = "http://timestamp.digicert.com"
-              }
-            }
-          }
-          $configuration | ConvertTo-Json -Depth 4 | Set-Content tauri.windows-signing.conf.json
 
-      - id: package
-        uses: tauri-apps/tauri-action@v1
+      - name: Install NSIS
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: choco install nsis --yes --no-progress
+
+      - name: Build and optionally sign Windows installer
+        if: matrix.platform == 'windows'
+        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          cargo packager --release --formats nsis --out-dir dist
+          $installer = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer was not created" }
+          if ($env:MERIDIAN_WINDOWS_SIGNED -eq "true") {
+            & $env:MERIDIAN_WINDOWS_SIGNTOOL sign /f $env:MERIDIAN_WINDOWS_CERTIFICATE /p $env:WINDOWS_CERTIFICATE_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $installer.FullName
+            & $env:MERIDIAN_WINDOWS_SIGNTOOL verify /pa $installer.FullName
+          }
+
+      - uses: actions/upload-artifact@v4
         with:
-          tagName: v__VERSION__
-          releaseName: Meridian v__VERSION__
-          releaseBody: >-
-            All installers include the complete ephemeris and city atlas for
-            offline use. The macOS DMG is ad-hoc signed and requires one
-            Gatekeeper approval through Privacy & Security on first launch.
-          generateReleaseNotes: true
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
-
-      - name: Sign and replace the RPM release asset
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          umask 077
-          signing_home="$RUNNER_TEMP/meridian-rpm-gnupg"
-          private_key="$RUNNER_TEMP/meridian-rpm-private-key.gpg"
-          public_key="$RUNNER_TEMP/meridian-rpm-signing-key.asc"
-          trap 'rm -f "$private_key"' EXIT
-          mkdir -m 0700 "$signing_home"
-          printf '%s' "$LINUX_GPG_PRIVATE_KEY" | base64 --decode > "$private_key"
-          GNUPGHOME="$signing_home" gpg --batch --import "$private_key"
-          fingerprint=$(GNUPGHOME="$signing_home" gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
-          test -n "$fingerprint"
-          rpm_path=$(find target/release/bundle/rpm -maxdepth 1 -type f -name '*.rpm' -print -quit)
-          test -n "$rpm_path"
-          GNUPGHOME="$signing_home" rpmsign --addsign \
-            --define "_gpg_name $fingerprint" \
-            --define "_gpg_path $signing_home" \
-            "$rpm_path"
-          signature=$(rpm -qp --qf '%{RSAHEADER:pgpsig}' "$rpm_path")
-          test -n "$signature"
-          test "$signature" != "(none)"
-          GNUPGHOME="$signing_home" gpg --batch --armor --export "$fingerprint" > "$public_key"
-          gh release upload "$GITHUB_REF_NAME" "$rpm_path" --clobber
-          gh release upload "$GITHUB_REF_NAME" "$public_key#Meridian RPM signing key" --clobber
-
-      - id: attestation-paths
-        name: Prepare installer paths for attestation
-        shell: bash
-        env:
-          ARTIFACT_PATHS_JSON: ${{ steps.package.outputs.artifactPaths }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-
-          paths = json.loads(os.environ["ARTIFACT_PATHS_JSON"])
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write("paths<<MERIDIAN_PATHS\n")
-              output.write("\n".join(paths))
-              output.write("\nMERIDIAN_PATHS\n")
-          PY
+          name: meridian-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
 
       - uses: actions/attest@v4
         with:
-          subject-path: ${{ steps.attestation-paths.outputs.paths }}
+          subject-path: dist/*
 
   publish:
     name: Publish complete release
     needs: build
     if: github.server_url == 'https://github.com'
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-22.04' || 'rust' }}
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
-      - name: Publish the assembled draft
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: meridian-*
+          path: dist
+          merge-multiple: true
+
+      - name: Require every platform artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          find dist -maxdepth 1 -type f -name '*.AppImage' -print -quit | grep -q .
+          find dist -maxdepth 1 -type f -name '*.deb' -print -quit | grep -q .
+          find dist -maxdepth 1 -type f -name '*.rpm' -print -quit | grep -q .
+          find dist -maxdepth 1 -type f -name '*.dmg' -print -quit | grep -q .
+          find dist -maxdepth 1 -type f -name '*.exe' -print -quit | grep -q .
+
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/meridian-release-notes.md"
+          cat > "$notes" <<'NOTES'
+          Every installer contains the complete Swiss Ephemeris coefficient set and city atlas for offline use.
+
+          The macOS DMG is ad-hoc signed and requires one Gatekeeper approval through Privacy & Security on first launch. Windows may show an Unknown publisher prompt when the release repository has no Authenticode certificate configured.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag \
+            --title "Meridian $GITHUB_REF_NAME" \
+            --notes-file "$notes" \
+            --generate-notes

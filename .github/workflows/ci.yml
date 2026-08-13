@@ -1,4 +1,4 @@
-name: CI
+name: Native desktop CI
 
 on:
   pull_request:
@@ -11,25 +11,29 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: "1.95.0"
 
 jobs:
   check:
-    name: Native desktop application
-    runs-on: tauri
-
+    name: Linux application and library
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pinned Rust toolchain
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy,rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install native build dependencies
         run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" \
-            --profile minimal \
-            --component clippy \
-            --component rustfmt
-          rustup default "$RUST_TOOLCHAIN"
-          rustc --version
-          cargo --version
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libdbus-1-dev \
+            libudev-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            pkg-config
 
       - name: Fetch test ephemeris
         run: ./tools/fetch-ephemeris --current

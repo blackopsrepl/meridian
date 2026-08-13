@@ -1,0 +1,58 @@
+name: meridian
+arch: amd64
+platform: linux
+version: ${MERIDIAN_VERSION}
+version_schema: semver
+release: "1"
+section: science
+priority: optional
+maintainer: BlackOps REPL
+vendor: BlackOps REPL
+homepage: https://github.com/blackopsrepl/meridian
+license: AGPL-3.0-or-later
+description: |-
+  Native classical astrology workbench for calculating, inspecting, comparing,
+  timing, archiving, and exporting traditional septenary charts offline.
+
+contents:
+  - src: target/release/meridian
+    dst: /usr/bin/meridian
+    file_info:
+      mode: 0755
+  - src: data/ephe/
+    dst: /usr/share/meridian/data/ephe
+    type: tree
+  - src: data/geonames/
+    dst: /usr/share/meridian/data/geonames
+    type: tree
+  - src: icons/128x128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/meridian.png
+  - src: icons/icon.png
+    dst: /usr/share/icons/hicolor/512x512/apps/meridian.png
+  - src: packaging/meridian.desktop
+    dst: /usr/share/applications/meridian.desktop
+  - src: packaging/application-x-meridian-chart.xml
+    dst: /usr/share/mime/packages/application-x-meridian-chart.xml
+
+overrides:
+  deb:
+    depends:
+      - libc6
+      - libdbus-1-3
+      - libegl1
+      - libgcc-s1
+      - libgl1
+      - libwayland-client0
+      - libx11-6
+      - libx11-xcb1
+      - libxkbcommon0
+  rpm:
+    depends:
+      - dbus-libs
+      - glibc
+      - libgcc
+      - libwayland-client
+      - libX11
+      - libxkbcommon
+      - mesa-libEGL
+      - mesa-libGL

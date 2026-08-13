@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Meridian
+Comment=Classical astrology chart workbench
+Exec=meridian %F
+Icon=meridian
+Terminal=false
+Type=Application
+Categories=Science;
+MimeType=application/x-meridian-chart;
+StartupNotify=true
