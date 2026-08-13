@@ -16,6 +16,22 @@ Jupiter, and Saturn and is exhaustively matched throughout the code.
   day/night reversals
 - Antiscia, contra-antiscia, and dodecatemoria for every lot
 
+## Aspect policy
+
+The chart reports conjunction, sextile, square, trine, and opposition. It uses
+the shortest circular separation, including across 0° Aries, and chooses the
+nearest exact aspect inside the configured orb. Default base orbs are 8° for
+conjunction and opposition, 7° for square and trine, and 5° for sextile. A
+Sun-or-Moon aspect receives a 2° luminary allowance; aspects to the Ascendant
+or Midheaven are capped at 5°, and aspects to Fortune or Spirit at 3°.
+
+Applying and separating are determined from the instantaneous relative
+longitudinal motion toward the relevant directed aspect branch. This handles
+direct and retrograde motion without advancing by a fixed time step or
+overshooting an imminent exact hit. An aspect is partile below 1° of orb.
+Aspects to an angle or calculated lot are labelled static because the chart
+does not assign those derived points an independent longitudinal speed.
+
 ## Timing and comparison
 
 Exact transit and return times are roots solved against ephemeris longitude,

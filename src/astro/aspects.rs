@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::types::{Planet, PointId, angular_distance, normalize_degrees};
+use super::types::{Planet, PointId, angular_distance};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -62,6 +62,18 @@ pub enum AspectPhase {
     Separating,
     Exact,
     Static,
+}
+
+impl AspectPhase {
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Applying => "Applying",
+            Self::Separating => "Separating",
+            Self::Exact => "Exact",
+            Self::Static => "Static",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -189,21 +201,48 @@ pub(crate) fn identify_aspect(
 }
 
 fn phase(left: AspectPoint, right: AspectPoint, kind: AspectKind, current_orb: f64) -> AspectPhase {
-    if current_orb <= 0.01 {
+    if current_orb <= 1e-6 {
         return AspectPhase::Exact;
     }
     let (Some(left_speed), Some(right_speed)) = (left.speed, right.speed) else {
         return AspectPhase::Static;
     };
-    let step_days = 0.01;
-    let future_left = normalize_degrees(left.longitude + left_speed * step_days);
-    let future_right = normalize_degrees(right.longitude + right_speed * step_days);
-    let future_orb = (angular_distance(future_left, future_right) - kind.angle()).abs();
-    if future_orb < current_orb {
-        AspectPhase::Applying
-    } else {
-        AspectPhase::Separating
+    let relative_speed = right_speed - left_speed;
+    if relative_speed.abs() <= f64::EPSILON {
+        return AspectPhase::Static;
     }
+
+    let error = oriented_aspect_error(right.longitude - left.longitude, kind);
+    let orb_trend = error * relative_speed;
+    if orb_trend < -1e-12 {
+        AspectPhase::Applying
+    } else if orb_trend > 1e-12 {
+        AspectPhase::Separating
+    } else {
+        AspectPhase::Static
+    }
+}
+
+fn oriented_aspect_error(separation: f64, kind: AspectKind) -> f64 {
+    let angle = match kind {
+        AspectKind::Conjunction => return signed_degrees(separation),
+        AspectKind::Opposition => return signed_degrees(separation - 180.0),
+        AspectKind::Sextile => 60.0,
+        AspectKind::Square => 90.0,
+        AspectKind::Trine => 120.0,
+    };
+
+    let positive = signed_degrees(separation - angle);
+    let negative = signed_degrees(separation + angle);
+    if positive.abs() <= negative.abs() {
+        positive
+    } else {
+        negative
+    }
+}
+
+fn signed_degrees(value: f64) -> f64 {
+    (value + 180.0).rem_euclid(360.0) - 180.0
 }
 
 const fn is_luminary(point: PointId) -> bool {
@@ -220,7 +259,7 @@ const fn is_lot(point: PointId) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{AspectKind, AspectPhase, AspectPoint, OrbPolicy, find_aspects};
+    use super::{AspectKind, AspectPhase, AspectPoint, OrbPolicy, find_aspects, identify_aspect};
     use crate::astro::types::{Planet, PointId};
 
     #[test]
@@ -258,6 +297,136 @@ mod tests {
                     id: PointId::Planet(Planet::Mars),
                     longitude: 45.0,
                     speed: Some(0.5),
+                },
+            ],
+            &OrbPolicy::default(),
+        );
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn all_ptolemaic_aspects_are_identified_across_the_zodiac_boundary() {
+        let policy = OrbPolicy::default();
+        for kind in AspectKind::ALL {
+            let right = (350.0 + kind.angle()).rem_euclid(360.0);
+            let identified = identify_aspect(
+                PointId::Planet(Planet::Mercury),
+                350.0,
+                PointId::Planet(Planet::Saturn),
+                right,
+                &policy,
+            );
+            assert_eq!(identified, Some((kind, 0.0)), "failed for {kind:?}");
+        }
+    }
+
+    #[test]
+    fn aspect_boundaries_follow_point_specific_orbs() {
+        let policy = OrbPolicy::default();
+        assert!(
+            identify_aspect(
+                PointId::Planet(Planet::Sun),
+                0.0,
+                PointId::Planet(Planet::Saturn),
+                189.9,
+                &policy,
+            )
+            .is_some()
+        );
+        assert!(
+            identify_aspect(
+                PointId::Planet(Planet::Mercury),
+                0.0,
+                PointId::Ascendant,
+                95.0,
+                &policy,
+            )
+            .is_some()
+        );
+        assert!(
+            identify_aspect(
+                PointId::Planet(Planet::Mercury),
+                0.0,
+                PointId::LotFortune,
+                93.0,
+                &policy,
+            )
+            .is_some()
+        );
+        assert!(
+            identify_aspect(
+                PointId::Planet(Planet::Mercury),
+                0.0,
+                PointId::LotFortune,
+                93.01,
+                &policy,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn phase_does_not_overshoot_an_imminent_exact_aspect() {
+        let hits = find_aspects(
+            &[
+                AspectPoint {
+                    id: PointId::Planet(Planet::Saturn),
+                    longitude: 0.0,
+                    speed: Some(0.0),
+                },
+                AspectPoint {
+                    id: PointId::Planet(Planet::Moon),
+                    longitude: 59.95,
+                    speed: Some(20.0),
+                },
+            ],
+            &OrbPolicy::default(),
+        );
+        assert_eq!(hits[0].kind, AspectKind::Sextile);
+        assert_eq!(hits[0].phase, AspectPhase::Applying);
+    }
+
+    #[test]
+    fn phase_handles_both_aspect_directions_and_retrograde_motion() {
+        let cases = [
+            (59.0, 2.0, AspectPhase::Applying),
+            (61.0, 2.0, AspectPhase::Separating),
+            (301.0, -2.0, AspectPhase::Applying),
+            (299.0, -2.0, AspectPhase::Separating),
+        ];
+        for (longitude, speed, expected) in cases {
+            let hits = find_aspects(
+                &[
+                    AspectPoint {
+                        id: PointId::Planet(Planet::Saturn),
+                        longitude: 0.0,
+                        speed: Some(0.0),
+                    },
+                    AspectPoint {
+                        id: PointId::Planet(Planet::Mercury),
+                        longitude,
+                        speed: Some(speed),
+                    },
+                ],
+                &OrbPolicy::default(),
+            );
+            assert_eq!(hits[0].phase, expected, "longitude {longitude}");
+        }
+    }
+
+    #[test]
+    fn point_to_point_pairs_are_not_reported_as_chart_aspects() {
+        let hits = find_aspects(
+            &[
+                AspectPoint {
+                    id: PointId::Ascendant,
+                    longitude: 0.0,
+                    speed: None,
+                },
+                AspectPoint {
+                    id: PointId::Midheaven,
+                    longitude: 90.0,
+                    speed: None,
                 },
             ],
             &OrbPolicy::default(),
