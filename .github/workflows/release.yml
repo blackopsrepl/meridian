@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           tag_version=${GITHUB_REF_NAME#v}
-          cargo_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          cargo_version=$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)
           test "$tag_version" = "$cargo_version"
 
       - name: Verify tracked package inputs
@@ -184,11 +184,14 @@ jobs:
           test -n "$rpm_package"
           desktop-file-validate packaging/meridian.desktop
           dpkg-deb --info "$deb"
-          dpkg-deb --contents "$deb" | grep -q 'usr/share/meridian/data/ephe'
+          dpkg-deb --contents "$deb" > "$RUNNER_TEMP/meridian-deb-contents.txt"
+          grep -q 'usr/share/meridian/data/ephe' "$RUNNER_TEMP/meridian-deb-contents.txt"
           rpm -qpi "$rpm_package"
-          rpm -qlp "$rpm_package" | grep -q '/usr/share/meridian/data/ephe'
+          rpm -qlp "$rpm_package" > "$RUNNER_TEMP/meridian-rpm-contents.txt"
+          grep -q '/usr/share/meridian/data/ephe' "$RUNNER_TEMP/meridian-rpm-contents.txt"
           if [[ "${MERIDIAN_RPM_SIGNED:-}" == "true" ]]; then
-            rpm -Kv "$rpm_package" 2>&1 | grep -q 'Signature'
+            rpm -Kv "$rpm_package" > "$RUNNER_TEMP/meridian-rpm-signature.txt" 2>&1
+            grep -q 'Signature' "$RUNNER_TEMP/meridian-rpm-signature.txt"
           fi
 
           appimage_check="$RUNNER_TEMP/meridian-appimage-check"
@@ -308,11 +311,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find dist -maxdepth 1 -type f -name '*.AppImage' -print -quit | grep -q .
-          find dist -maxdepth 1 -type f -name '*.deb' -print -quit | grep -q .
-          find dist -maxdepth 1 -type f -name '*.rpm' -print -quit | grep -q .
-          find dist -maxdepth 1 -type f -name '*.dmg' -print -quit | grep -q .
-          find dist -maxdepth 1 -type f -name '*.exe' -print -quit | grep -q .
+          test -n "$(find dist -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$(find dist -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$(find dist -maxdepth 1 -type f -name '*.rpm' -print -quit)"
+          test -n "$(find dist -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$(find dist -maxdepth 1 -type f -name '*.exe' -print -quit)"
 
       - name: Publish GitHub release
         env:

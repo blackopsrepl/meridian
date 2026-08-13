@@ -3,7 +3,7 @@ set -euo pipefail
 
 output_directory=${MERIDIAN_PACKAGE_OUTPUT:-dist}
 package_config=${MERIDIAN_NFPM_CONFIG:-packaging/nfpm.yaml}
-version=${MERIDIAN_VERSION:-$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)}
+version=${MERIDIAN_VERSION:-$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)}
 
 test -x target/release/meridian
 command -v nfpm >/dev/null
