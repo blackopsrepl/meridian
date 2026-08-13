@@ -27,8 +27,8 @@ contents:
     type: tree
   - src: icons/128x128.png
     dst: /usr/share/icons/hicolor/128x128/apps/meridian.png
-  - src: icons/icon.png
-    dst: /usr/share/icons/hicolor/512x512/apps/meridian.png
+  - src: icons/128x128@2x.png
+    dst: /usr/share/icons/hicolor/256x256/apps/meridian.png
   - src: packaging/meridian.desktop
     dst: /usr/share/applications/meridian.desktop
   - src: packaging/application-x-meridian-chart.xml

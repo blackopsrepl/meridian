@@ -1,4 +1,4 @@
-.PHONY: setup data-current data-cities verify-data run bundle test check fmt lint clean
+.PHONY: setup data-current data-cities verify-data verify-package-inputs run bundle test check fmt lint clean
 
 setup:
 	./tools/fetch-ephemeris --all
@@ -13,6 +13,9 @@ data-cities:
 
 verify-data:
 	python3 tools/verify-release-data
+
+verify-package-inputs:
+	python3 tools/verify-package-inputs
 
 run:
 	cargo run --locked --bin meridian
@@ -29,7 +32,7 @@ bundle: verify-data
 test:
 	cargo test --locked --all-targets
 
-check: fmt lint test
+check: verify-package-inputs fmt lint test
 
 fmt:
 	cargo fmt --all -- --check

@@ -34,6 +34,9 @@ jobs:
           cargo_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
           test "$tag_version" = "$cargo_version"
 
+      - name: Verify tracked package inputs
+        run: python tools/verify-package-inputs
+
       - name: Fetch the complete offline data set
         run: |
           ./tools/fetch-ephemeris --all
