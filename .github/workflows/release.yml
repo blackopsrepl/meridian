@@ -329,7 +329,9 @@ jobs:
 
           The macOS DMG is ad-hoc signed and requires one Gatekeeper approval through Privacy & Security on first launch. Windows may show an Unknown publisher prompt when the release repository has no Authenticode certificate configured.
           NOTES
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          mapfile -d '' -t release_assets < <(find dist -maxdepth 1 -type f -print0)
+          test "${#release_assets[@]}" -gt 0
+          gh release create "$GITHUB_REF_NAME" "${release_assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "Meridian $GITHUB_REF_NAME" \
