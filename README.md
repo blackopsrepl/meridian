@@ -1,5 +1,9 @@
 # Meridian
 
+<p align="center">
+  <img src="docs/assets/meridian-mascot.png" width="420" alt="Meridian celestial tortoise mascot with seven classical planetary medallions">
+</p>
+
 Meridian is a desktop classical astrology workbench written in Rust. It is
 deliberately limited to the traditional septenary—Sun, Moon, Mercury, Venus,
 Mars, Jupiter, and Saturn—while retaining professional chart calculation,
