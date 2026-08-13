@@ -82,6 +82,17 @@ impl Chart {
     pub fn lot(&self, kind: LotKind) -> Option<&Lot> {
         self.lots.iter().find(|lot| lot.kind == kind)
     }
+
+    #[must_use]
+    pub fn point_longitude(&self, point: PointId) -> Option<f64> {
+        match point {
+            PointId::Planet(planet) => self.planet(planet).map(|position| position.longitude),
+            PointId::Ascendant => Some(self.houses.ascendant),
+            PointId::Midheaven => Some(self.houses.midheaven),
+            PointId::LotFortune => self.lot(LotKind::Fortune).map(|lot| lot.longitude),
+            PointId::LotSpirit => self.lot(LotKind::Spirit).map(|lot| lot.longitude),
+        }
+    }
 }
 
 #[derive(Debug, Error)]

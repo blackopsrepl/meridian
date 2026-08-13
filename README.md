@@ -61,9 +61,10 @@ The left side of the window selects a workspace:
   their traditional testimonies.
 
 The chart wheel resizes with the window and with its pane dividers. Select a
-planet, aspect, sign, house, Ascendant, or Midheaven on the wheel or in the
-positions list to highlight it and show its exact data in the Inspector. The
-Midheaven remains fixed at 12 o'clock.
+planet, aspect, sign, house, angle, Fortune, or Spirit on the wheel or in the
+positions list to highlight every connected element and show its exact data in
+the Inspector. The Midheaven remains fixed at 12 o'clock, the Ascendant appears
+on the left, and zodiacal longitude increases anti-clockwise.
 
 ## Charts and files
 

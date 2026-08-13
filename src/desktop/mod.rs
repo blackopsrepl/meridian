@@ -17,8 +17,8 @@ use iced::widget::{button, column, container, row, rule, scrollable, space, text
 use iced::{Center, Color, Element, Fill, Length, Size, Subscription, Task, Theme};
 
 use crate::astro::{
-    Calendar, Chart, ChartCalculator, ChartPurpose, ChartRequest, CivilDateTime, Coordinates,
-    SwissEphemerisProvider, TimeZoneSpec, TraditionalHouseSystem,
+    AspectPhase, Calendar, Chart, ChartCalculator, ChartPurpose, ChartRequest, CivilDateTime,
+    Coordinates, LotKind, SwissEphemerisProvider, TimeZoneSpec, TraditionalHouseSystem,
 };
 use crate::document::{CHART_EXTENSION, ChartDocument};
 use crate::locations::CityIndex;
@@ -644,16 +644,50 @@ impl Desktop {
             );
         }
 
+        let mut points = column![section_label("ANGLES & LOTS")].spacing(3);
+        for (label, position, inspection) in [
+            ("ASC", chart.houses.ascendant, Inspection::Ascendant),
+            ("MC", chart.houses.midheaven, Inspection::Midheaven),
+        ] {
+            points = points.push(
+                button(text(format!("{label}   {}", format_position(position))).size(12))
+                    .width(Fill)
+                    .padding([5, 8])
+                    .style(button::text)
+                    .on_press(Message::Inspect(inspection)),
+            );
+        }
+        for (kind, glyph) in [(LotKind::Fortune, "⊗"), (LotKind::Spirit, "⊙")] {
+            if let Some(lot) = chart.lot(kind) {
+                points = points.push(
+                    button(
+                        text(format!(
+                            "{glyph}  {}   {}",
+                            kind.name(),
+                            format_position(lot.longitude)
+                        ))
+                        .size(12),
+                    )
+                    .width(Fill)
+                    .padding([5, 8])
+                    .style(button::text)
+                    .on_press(Message::Inspect(Inspection::Lot(kind))),
+                );
+            }
+        }
+
         let mut aspects = column![section_label("ASPECTS")].spacing(3);
         for (index, aspect) in chart.aspects.iter().enumerate() {
             aspects = aspects.push(
                 button(
                     text(format!(
-                        "{} {} {}   {:.2}°",
+                        "{} — {}\n{} {}   ·   {:.2}°   ·   {}",
                         aspect.left.name(),
-                        aspect.kind.glyph(),
                         aspect.right.name(),
-                        aspect.orb
+                        aspect.kind.glyph(),
+                        aspect.kind.name(),
+                        aspect.orb,
+                        aspect.phase.name(),
                     ))
                     .size(12),
                 )
@@ -665,7 +699,7 @@ impl Desktop {
         }
 
         scrollable(
-            column![heading, rule::horizontal(1), positions, aspects]
+            column![heading, rule::horizontal(1), positions, points, aspects]
                 .spacing(14)
                 .padding(14),
         )
@@ -704,14 +738,39 @@ impl Desktop {
             Some(Inspection::Aspect(index)) => chart.aspects.get(index).map_or_else(
                 || column![text("Aspect not found")],
                 |aspect| {
+                    let left_longitude = chart.point_longitude(aspect.left);
+                    let right_longitude = chart.point_longitude(aspect.right);
+                    let separation = left_longitude.zip(right_longitude).map(|(left, right)| {
+                        let difference = (left - right).rem_euclid(360.0).abs();
+                        difference.min(360.0 - difference)
+                    });
+                    let allowed = chart.orb_policy.allowed_orb(
+                        aspect.kind,
+                        aspect.left,
+                        aspect.right,
+                    );
                     column![
                         text(format!("{}  {}", aspect.kind.glyph(), aspect.kind.name())).size(20),
                         key_value("Points", format!("{} — {}", aspect.left.name(), aspect.right.name())),
+                        key_value(
+                            aspect.left.name(),
+                            left_longitude.map_or_else(|| "Unavailable".to_owned(), format_position)
+                        ),
+                        key_value(
+                            aspect.right.name(),
+                            right_longitude.map_or_else(|| "Unavailable".to_owned(), format_position)
+                        ),
+                        key_value(
+                            "Separation",
+                            separation.map_or_else(|| "Unavailable".to_owned(), |value| format!("{value:.3}°"))
+                        ),
                         key_value("Exact angle", format!("{:.0}°", aspect.kind.angle())),
                         key_value("Orb", format!("{:.3}°", aspect.orb)),
-                        key_value("Phase", format!("{:?}", aspect.phase)),
-                        key_value("Partile", if aspect.partile { "Yes" } else { "No" }),
+                        key_value("Allowed orb", format!("{allowed:.1}°")),
+                        key_value("Phase", aspect.phase.name()),
+                        key_value("Partile", if aspect.partile { "Yes (< 1°)" } else { "No" }),
                         text(aspect_description(aspect.kind)).size(12).color(MUTED),
+                        text(aspect_phase_description(aspect.phase)).size(12).color(MUTED),
                     ]
                     .spacing(9)
                 },
@@ -754,6 +813,25 @@ impl Desktop {
                     .color(MUTED),
             ]
             .spacing(9),
+            Some(Inspection::Lot(kind)) => chart.lot(kind).map_or_else(
+                || column![text("Lot not found")],
+                |lot| {
+                    let glyph = match kind {
+                        LotKind::Fortune => "⊗",
+                        LotKind::Spirit => "⊙",
+                        _ => "•",
+                    };
+                    column![
+                        text(format!("{glyph}  {}", kind.name())).size(20),
+                        key_value("Position", format_position(lot.longitude)),
+                        key_value("Sign", lot.sign.name()),
+                        key_value("House", lot.house.to_string()),
+                        key_value("Ruler", lot.ruler.name()),
+                        text(lot_description(kind)).size(12).color(MUTED),
+                    ]
+                    .spacing(9)
+                },
+            ),
             None => column![],
         };
         scrollable(content.padding(14)).height(Fill).into()
@@ -1211,6 +1289,31 @@ fn aspect_description(kind: crate::astro::AspectKind) -> &'static str {
         AspectKind::Opposition => {
             "A 180° aspect traditionally associated with Saturn and polarity."
         }
+    }
+}
+
+fn aspect_phase_description(phase: AspectPhase) -> &'static str {
+    match phase {
+        AspectPhase::Applying => "The moving points are closing the orb toward exactitude.",
+        AspectPhase::Separating => {
+            "The moving points have passed exactitude and the orb is widening."
+        }
+        AspectPhase::Exact => "The separation matches the exact aspect angle.",
+        AspectPhase::Static => {
+            "Applying or separating is not assigned because relative motion is unavailable for this pair."
+        }
+    }
+}
+
+fn lot_description(kind: LotKind) -> &'static str {
+    match kind {
+        LotKind::Fortune => {
+            "A sect-dependent lot derived from the Ascendant, Sun and Moon, traditionally associated with bodily circumstances and material fortune."
+        }
+        LotKind::Spirit => {
+            "The sect-reversed counterpart to Fortune, traditionally associated with intention, action and direction."
+        }
+        _ => "A traditional calculated point derived from planetary and angular positions.",
     }
 }
 

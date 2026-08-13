@@ -1,19 +1,19 @@
+mod geometry;
+mod inspection;
+
 use iced::alignment;
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Event, Frame, Geometry, Path, Stroke};
-use iced::{Color, Element, Fill, Font, Point, Rectangle, Renderer, Size, Theme};
+use iced::{Element, Fill, Font, Point, Rectangle, Renderer, Size, Theme};
 
-use crate::astro::{AspectKind, Chart, Planet, PointId, ZodiacSign};
+use crate::astro::{AspectKind, Chart, LotKind, PointId, ZodiacSign};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Inspection {
-    Planet(Planet),
-    Sign(ZodiacSign),
-    House(u8),
-    Aspect(usize),
-    Ascendant,
-    Midheaven,
-}
+use geometry::{
+    ACCENT, ACCENT_BRIGHT, ACCENT_SOFT, ANGLE, BACKGROUND, BORDER, BORDER_STRONG, DANGER,
+    HOUSE_LINE, HOUSE_SELECTED, LOT_BACKGROUND, LOT_BORDER, Metrics, PLANET_BACKGROUND, RING_A,
+    RING_B, TEXT, TEXT_MUTED, annular_sector, aspect_color, distance, point_segment_distance,
+};
+pub use inspection::Inspection;
 
 pub fn view(chart: &Chart, selected: Option<Inspection>) -> Element<'_, Inspection> {
     Canvas::new(ChartCanvas { chart, selected })
@@ -138,6 +138,7 @@ impl ChartCanvas<'_> {
         self.draw_houses(frame, &metrics);
         self.draw_aspects(frame, &metrics);
         self.draw_planets(frame, &metrics);
+        self.draw_lots(frame, &metrics);
         self.draw_angles(frame, &metrics);
     }
 
@@ -194,47 +195,89 @@ impl ChartCanvas<'_> {
 
     fn draw_aspects(&self, frame: &mut Frame, metrics: &Metrics) {
         for (index, aspect) in self.chart.aspects.iter().enumerate() {
-            let Some(left_longitude) = point_longitude(self.chart, aspect.left) else {
+            let Some(left_longitude) = self.chart.point_longitude(aspect.left) else {
                 continue;
             };
-            let Some(right_longitude) = point_longitude(self.chart, aspect.right) else {
+            let Some(right_longitude) = self.chart.point_longitude(aspect.right) else {
                 continue;
             };
             let selected = self.selected == Some(Inspection::Aspect(index));
-            let related = match self.selected {
-                Some(Inspection::Planet(planet)) => {
-                    aspect.left == PointId::Planet(planet)
-                        || aspect.right == PointId::Planet(planet)
-                }
-                _ => false,
-            };
+            let related = self
+                .selected
+                .and_then(Inspection::point)
+                .is_some_and(|point| aspect.left == point || aspect.right == point);
+            let allowed = self
+                .chart
+                .orb_policy
+                .allowed_orb(aspect.kind, aspect.left, aspect.right);
+            let strength = (1.0 - (aspect.orb / allowed).clamp(0.0, 1.0)) as f32;
             let color = if selected || related {
                 aspect_color(aspect.kind)
             } else {
-                aspect_color(aspect.kind).scale_alpha(0.38)
+                aspect_color(aspect.kind).scale_alpha(0.28 + strength * 0.34)
             };
+            let left = metrics.point(left_longitude, metrics.aspect_radius());
+            let right = metrics.point(right_longitude, metrics.aspect_radius());
             frame.stroke(
-                &Path::line(
-                    metrics.point(left_longitude, metrics.inner * 0.69),
-                    metrics.point(right_longitude, metrics.inner * 0.69),
-                ),
+                &Path::line(left, right),
                 Stroke::default()
                     .with_width(if selected {
-                        3.0
+                        3.2
                     } else if related {
-                        2.0
+                        2.2
                     } else {
-                        1.0
+                        0.9 + strength * 0.5
                     })
                     .with_color(color),
             );
+
+            for endpoint in [left, right] {
+                frame.fill(
+                    &Path::circle(endpoint, if selected || related { 4.0 } else { 2.0 }),
+                    color,
+                );
+            }
+
+            let midpoint = Point::new(
+                f32::midpoint(left.x, right.x),
+                f32::midpoint(left.y, right.y),
+            );
+            if aspect.kind == AspectKind::Conjunction {
+                frame.stroke(
+                    &Path::circle(midpoint, if selected { 7.0 } else { 4.5 }),
+                    Stroke::default()
+                        .with_width(if selected { 2.5 } else { 1.4 })
+                        .with_color(color),
+                );
+            }
+            if selected {
+                frame.fill(&Path::circle(midpoint, 12.0), BACKGROUND);
+                frame.stroke(
+                    &Path::circle(midpoint, 12.0),
+                    Stroke::default().with_width(1.5).with_color(color),
+                );
+                frame.fill_text(canvas::Text {
+                    content: aspect.kind.glyph().to_owned(),
+                    position: midpoint,
+                    size: 14.0.into(),
+                    color,
+                    align_x: iced::widget::text::Alignment::Center,
+                    align_y: alignment::Vertical::Center,
+                    font: Font::DEFAULT,
+                    ..canvas::Text::default()
+                });
+            }
         }
     }
 
     fn draw_planets(&self, frame: &mut Frame, metrics: &Metrics) {
-        for position in &self.chart.positions {
-            let selected = self.selected == Some(Inspection::Planet(position.planet));
-            let center = metrics.point(position.longitude, metrics.planet_radius);
+        for (position, center) in self.planet_markers(metrics) {
+            let selected = self.point_emphasized(PointId::Planet(position.planet));
+            let anchor = metrics.point(position.longitude, metrics.sign_inner - 3.0);
+            frame.stroke(
+                &Path::line(anchor, center),
+                Stroke::default().with_width(0.8).with_color(BORDER_STRONG),
+            );
             frame.fill(
                 &Path::circle(center, if selected { 16.0 } else { 13.0 }),
                 if selected { ACCENT } else { PLANET_BACKGROUND },
@@ -274,12 +317,58 @@ impl ChartCanvas<'_> {
         }
     }
 
+    fn draw_lots(&self, frame: &mut Frame, metrics: &Metrics) {
+        for (kind, point, glyph) in [
+            (LotKind::Fortune, PointId::LotFortune, "⊗"),
+            (LotKind::Spirit, PointId::LotSpirit, "⊙"),
+        ] {
+            let Some(lot) = self.chart.lot(kind) else {
+                continue;
+            };
+            let selected = self.point_emphasized(point);
+            let center = metrics.point(lot.longitude, metrics.lot_radius());
+            let radius = if selected { 13.0 } else { 10.5 };
+            frame.stroke(
+                &Path::line(
+                    metrics.point(lot.longitude, metrics.aspect_radius()),
+                    center,
+                ),
+                Stroke::default().with_width(0.8).with_color(BORDER_STRONG),
+            );
+            frame.fill(
+                &Path::circle(center, radius),
+                if selected { ACCENT } else { LOT_BACKGROUND },
+            );
+            frame.stroke(
+                &Path::circle(center, radius),
+                Stroke::default()
+                    .with_width(if selected { 2.0 } else { 1.0 })
+                    .with_color(if selected { ACCENT_BRIGHT } else { LOT_BORDER }),
+            );
+            frame.fill_text(canvas::Text {
+                content: glyph.to_owned(),
+                position: center,
+                size: 15.0.into(),
+                color: if selected { BACKGROUND } else { TEXT },
+                align_x: iced::widget::text::Alignment::Center,
+                align_y: alignment::Vertical::Center,
+                font: Font::DEFAULT,
+                ..canvas::Text::default()
+            });
+        }
+    }
+
     fn draw_angles(&self, frame: &mut Frame, metrics: &Metrics) {
         for (inspection, longitude, label) in [
             (Inspection::Ascendant, self.chart.houses.ascendant, "ASC"),
             (Inspection::Midheaven, self.chart.houses.midheaven, "MC"),
         ] {
-            let selected = self.selected == Some(inspection);
+            let point_id = match inspection {
+                Inspection::Ascendant => PointId::Ascendant,
+                Inspection::Midheaven => PointId::Midheaven,
+                _ => unreachable!(),
+            };
+            let selected = self.point_emphasized(point_id);
             let inner = metrics.point(longitude, metrics.inner * 0.20);
             let outer = metrics.point(longitude, metrics.outer);
             frame.stroke(
@@ -304,13 +393,17 @@ impl ChartCanvas<'_> {
 
     fn hit_test(&self, size: Size, point: Point) -> Option<Inspection> {
         let metrics = Metrics::new(size, self.chart.houses.midheaven);
-        for position in &self.chart.positions {
-            if distance(
-                point,
-                metrics.point(position.longitude, metrics.planet_radius),
-            ) <= 19.0
-            {
+        for (position, center) in self.planet_markers(&metrics) {
+            if distance(point, center) <= 19.0 {
                 return Some(Inspection::Planet(position.planet));
+            }
+        }
+
+        for kind in [LotKind::Fortune, LotKind::Spirit] {
+            if self.chart.lot(kind).is_some_and(|lot| {
+                distance(point, metrics.point(lot.longitude, metrics.lot_radius())) <= 16.0
+            }) {
+                return Some(Inspection::Lot(kind));
             }
         }
 
@@ -325,21 +418,24 @@ impl ChartCanvas<'_> {
             }
         }
 
-        for (index, aspect) in self.chart.aspects.iter().enumerate() {
-            let (Some(left), Some(right)) = (
-                point_longitude(self.chart, aspect.left),
-                point_longitude(self.chart, aspect.right),
-            ) else {
-                continue;
-            };
-            if point_segment_distance(
-                point,
-                metrics.point(left, metrics.inner * 0.69),
-                metrics.point(right, metrics.inner * 0.69),
-            ) <= 5.0
-            {
-                return Some(Inspection::Aspect(index));
-            }
+        let closest_aspect = self
+            .chart
+            .aspects
+            .iter()
+            .enumerate()
+            .filter_map(|(index, aspect)| {
+                let left = self.chart.point_longitude(aspect.left)?;
+                let right = self.chart.point_longitude(aspect.right)?;
+                let distance = point_segment_distance(
+                    point,
+                    metrics.point(left, metrics.aspect_radius()),
+                    metrics.point(right, metrics.aspect_radius()),
+                );
+                (distance <= 7.0).then_some((index, distance))
+            })
+            .min_by(|left, right| left.1.total_cmp(&right.1));
+        if let Some((index, _)) = closest_aspect {
+            return Some(Inspection::Aspect(index));
         }
 
         let radial = distance(point, metrics.center);
@@ -352,112 +448,44 @@ impl ChartCanvas<'_> {
         }
         None
     }
-}
 
-struct Metrics {
-    center: Point,
-    outer: f32,
-    sign_inner: f32,
-    planet_radius: f32,
-    inner: f32,
-    top_longitude: f64,
-}
-
-impl Metrics {
-    fn new(size: Size, top_longitude: f64) -> Self {
-        let outer = (size.width.min(size.height) * 0.46).max(80.0);
-        Self {
-            center: Point::new(size.width / 2.0, size.height / 2.0),
-            outer,
-            sign_inner: outer * 0.84,
-            planet_radius: outer * 0.74,
-            inner: outer * 0.69,
-            top_longitude,
+    fn point_emphasized(&self, point: PointId) -> bool {
+        if self.selected.and_then(Inspection::point) == Some(point) {
+            return true;
         }
+        let Some(Inspection::Aspect(index)) = self.selected else {
+            return false;
+        };
+        self.chart
+            .aspects
+            .get(index)
+            .is_some_and(|aspect| aspect.left == point || aspect.right == point)
     }
 
-    fn point(&self, longitude: f64, radius: f32) -> Point {
-        let theta = (90.0 - (longitude - self.top_longitude).rem_euclid(360.0)).to_radians();
-        Point::new(
-            self.center.x + radius * theta.cos() as f32,
-            self.center.y - radius * theta.sin() as f32,
-        )
-    }
-
-    fn longitude(&self, point: Point) -> f64 {
-        let dx = f64::from(point.x - self.center.x);
-        let dy = f64::from(self.center.y - point.y);
-        (90.0 - dy.atan2(dx).to_degrees() + self.top_longitude).rem_euclid(360.0)
-    }
-}
-
-fn annular_sector(metrics: &Metrics, start: f64, end: f64, inner: f32, outer: f32) -> Path {
-    Path::new(|builder| {
-        let segments = 20;
-        builder.move_to(metrics.point(start, outer));
-        for step in 1..=segments {
-            let longitude = start + (end - start) * f64::from(step) / f64::from(segments);
-            builder.line_to(metrics.point(longitude, outer));
+    fn planet_markers<'a>(
+        &'a self,
+        metrics: &Metrics,
+    ) -> Vec<(&'a crate::astro::PlanetPosition, Point)> {
+        let mut positions = self.chart.positions.iter().collect::<Vec<_>>();
+        positions.sort_by(|left, right| left.longitude.total_cmp(&right.longitude));
+        let mut markers = Vec::with_capacity(positions.len());
+        for position in positions {
+            let radii = [
+                metrics.planet_radius,
+                metrics.planet_radius - 28.0,
+                metrics.planet_radius + 24.0,
+            ];
+            let center = radii
+                .into_iter()
+                .map(|radius| metrics.point(position.longitude, radius))
+                .find(|candidate| {
+                    markers
+                        .iter()
+                        .all(|(_, existing)| distance(*candidate, *existing) >= 29.0)
+                })
+                .unwrap_or_else(|| metrics.point(position.longitude, radii[1]));
+            markers.push((position, center));
         }
-        for step in (0..=segments).rev() {
-            let longitude = start + (end - start) * f64::from(step) / f64::from(segments);
-            builder.line_to(metrics.point(longitude, inner));
-        }
-        builder.close();
-    })
-}
-
-fn point_longitude(chart: &Chart, point: PointId) -> Option<f64> {
-    match point {
-        PointId::Planet(planet) => chart.planet(planet).map(|position| position.longitude),
-        PointId::Ascendant => Some(chart.houses.ascendant),
-        PointId::Midheaven => Some(chart.houses.midheaven),
-        PointId::LotFortune => chart.lots.first().map(|lot| lot.longitude),
-        PointId::LotSpirit => chart.lots.get(1).map(|lot| lot.longitude),
+        markers
     }
 }
-
-fn aspect_color(kind: AspectKind) -> Color {
-    match kind {
-        AspectKind::Conjunction => Color::from_rgb8(203, 213, 225),
-        AspectKind::Sextile => Color::from_rgb8(74, 222, 128),
-        AspectKind::Square => Color::from_rgb8(248, 113, 113),
-        AspectKind::Trine => Color::from_rgb8(96, 165, 250),
-        AspectKind::Opposition => Color::from_rgb8(251, 146, 60),
-    }
-}
-
-fn distance(left: Point, right: Point) -> f32 {
-    (left.x - right.x).hypot(left.y - right.y)
-}
-
-fn point_segment_distance(point: Point, start: Point, end: Point) -> f32 {
-    let dx = end.x - start.x;
-    let dy = end.y - start.y;
-    let length_squared = dx * dx + dy * dy;
-    if length_squared <= f32::EPSILON {
-        return distance(point, start);
-    }
-    let ratio =
-        (((point.x - start.x) * dx + (point.y - start.y) * dy) / length_squared).clamp(0.0, 1.0);
-    distance(
-        point,
-        Point::new(start.x + ratio * dx, start.y + ratio * dy),
-    )
-}
-
-const BACKGROUND: Color = Color::from_rgb(0.047, 0.063, 0.102);
-const RING_A: Color = Color::from_rgb(0.075, 0.094, 0.145);
-const RING_B: Color = Color::from_rgb(0.063, 0.080, 0.125);
-const ACCENT_SOFT: Color = Color::from_rgb(0.16, 0.22, 0.29);
-const PLANET_BACKGROUND: Color = Color::from_rgb(0.094, 0.118, 0.176);
-const TEXT: Color = Color::from_rgb(0.88, 0.90, 0.94);
-const TEXT_MUTED: Color = Color::from_rgb(0.52, 0.58, 0.68);
-const BORDER: Color = Color::from_rgb(0.16, 0.20, 0.29);
-const BORDER_STRONG: Color = Color::from_rgb(0.29, 0.36, 0.48);
-const HOUSE_LINE: Color = Color::from_rgb(0.20, 0.25, 0.35);
-const HOUSE_SELECTED: Color = Color::from_rgba(0.20, 0.72, 0.64, 0.14);
-const ANGLE: Color = Color::from_rgb(0.96, 0.71, 0.35);
-const ACCENT: Color = Color::from_rgb(0.30, 0.82, 0.72);
-const ACCENT_BRIGHT: Color = Color::from_rgb(0.55, 0.96, 0.86);
-const DANGER: Color = Color::from_rgb(0.98, 0.45, 0.45);

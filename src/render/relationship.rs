@@ -1,5 +1,7 @@
 use crate::astro::{AspectKind, Chart, CompositeChart, Planet, PointId, Synastry, ZodiacSign};
 
+use super::geometry::{SVG_STYLE, wheel_point};
+
 #[must_use]
 pub fn render_synastry_wheel(
     first: &Chart,
@@ -35,11 +37,23 @@ pub fn render_synastry_wheel(
         };
         let (x1, y1) = polar(center, size * 0.225, left.longitude, top_longitude);
         let (x2, y2) = polar(center, size * 0.225, right.longitude, top_longitude);
-        svg.push_str(&format!(
-            r#"<line class="aspect {}" x1="{x1:.3}" y1="{y1:.3}" x2="{x2:.3}" y2="{y2:.3}" opacity="{:.3}"/>"#,
-            aspect_class(aspect.kind),
-            (0.25 + (1.0 - (aspect.orb / 10.0).min(1.0)) * 0.55).clamp(0.2, 0.8)
-        ));
+        let allowed = synastry.orb_policy.allowed_orb(
+            aspect.kind,
+            PointId::Planet(aspect.first),
+            PointId::Planet(aspect.second),
+        );
+        let opacity = 0.28 + (1.0 - (aspect.orb / allowed).clamp(0.0, 1.0)) * 0.62;
+        push_aspect_line(
+            &mut svg,
+            aspect.kind,
+            aspect.first.name(),
+            aspect.second.name(),
+            aspect.orb,
+            opacity,
+            (x1, y1),
+            (x2, y2),
+            None,
+        );
     }
     svg.push_str("</g>");
     draw_planet_ring(
@@ -113,10 +127,21 @@ pub fn render_composite_wheel(composite: &CompositeChart, size: u16) -> String {
             right_position.longitude,
             top_longitude,
         );
-        svg.push_str(&format!(
-            r#"<line class="aspect {}" x1="{x1:.3}" y1="{y1:.3}" x2="{x2:.3}" y2="{y2:.3}" opacity=".62"/>"#,
-            aspect_class(aspect.kind)
-        ));
+        let allowed = composite
+            .orb_policy
+            .allowed_orb(aspect.kind, aspect.left, aspect.right);
+        let opacity = 0.28 + (1.0 - (aspect.orb / allowed).clamp(0.0, 1.0)) * 0.62;
+        push_aspect_line(
+            &mut svg,
+            aspect.kind,
+            left.name(),
+            right.name(),
+            aspect.orb,
+            opacity,
+            (x1, y1),
+            (x2, y2),
+            Some(aspect.phase.name()),
+        );
     }
     draw_planet_ring(
         &mut svg,
@@ -137,7 +162,7 @@ pub fn render_composite_wheel(composite: &CompositeChart, size: u16) -> String {
 
 fn wheel_start(size: f64, title: &str, description: &str) -> String {
     format!(
-        r#"<svg class="chart-wheel relationship-wheel" viewBox="0 0 {size:.0} {size:.0}" role="img" aria-label="{}" xmlns="http://www.w3.org/2000/svg"><title>{}</title><desc>{}</desc><circle class="wheel-paper" cx="{:.3}" cy="{:.3}" r="{:.3}"/>"#,
+        r#"<svg class="chart-wheel relationship-wheel" viewBox="0 0 {size:.0} {size:.0}" role="img" aria-label="{}" xmlns="http://www.w3.org/2000/svg"><title>{}</title><desc>{}</desc><defs><style>{SVG_STYLE}</style></defs><circle class="wheel-paper" cx="{:.3}" cy="{:.3}" r="{:.3}"/>"#,
         xml_escape(title),
         xml_escape(title),
         xml_escape(description),
@@ -188,9 +213,10 @@ fn draw_houses(
             }
         ));
     }
+    let (asc_x, asc_y) = polar(center, outer + 14.0, cusps[0], top_longitude);
     let (mc_x, mc_y) = polar(center, outer + 14.0, top_longitude, top_longitude);
     svg.push_str(&format!(
-        r#"<text class="angle-label" x="{mc_x:.3}" y="{mc_y:.3}">MC</text>"#
+        r#"<text class="angle-label" x="{asc_x:.3}" y="{asc_y:.3}">ASC</text><text class="angle-label" x="{mc_x:.3}" y="{mc_y:.3}">MC</text>"#
     ));
 }
 
@@ -215,8 +241,42 @@ fn draw_planet_ring(
 const fn aspect_class(kind: AspectKind) -> &'static str {
     match kind {
         AspectKind::Conjunction => "conjunction",
-        AspectKind::Sextile | AspectKind::Trine => "harmonious",
-        AspectKind::Square | AspectKind::Opposition => "challenging",
+        AspectKind::Sextile => "sextile",
+        AspectKind::Square => "square",
+        AspectKind::Trine => "trine",
+        AspectKind::Opposition => "opposition",
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_aspect_line(
+    svg: &mut String,
+    kind: AspectKind,
+    left: &str,
+    right: &str,
+    orb: f64,
+    opacity: f64,
+    (x1, y1): (f64, f64),
+    (x2, y2): (f64, f64),
+    phase: Option<&str>,
+) {
+    let title = phase.map_or_else(
+        || format!("{left} {} {right} — {orb:.3}° orb", kind.name()),
+        |phase| format!("{left} {} {right} — {orb:.3}° orb, {phase}", kind.name()),
+    );
+    svg.push_str(&format!(
+        r#"<line class="aspect {}" data-left="{}" data-right="{}" data-orb="{orb:.6}" x1="{x1:.3}" y1="{y1:.3}" x2="{x2:.3}" y2="{y2:.3}" opacity="{opacity:.3}"><title>{}</title></line>"#,
+        aspect_class(kind),
+        xml_escape(left),
+        xml_escape(right),
+        xml_escape(&title),
+    ));
+    if kind == AspectKind::Conjunction {
+        svg.push_str(&format!(
+            r#"<circle class="aspect-marker conjunction" cx="{:.3}" cy="{:.3}" r="4" opacity="{opacity:.3}"/>"#,
+            f64::midpoint(x1, x2),
+            f64::midpoint(y1, y2),
+        ));
     }
 }
 
@@ -233,8 +293,7 @@ const fn planet_key(planet: Planet) -> &'static str {
 }
 
 fn polar(center: f64, radius: f64, longitude: f64, top_longitude: f64) -> (f64, f64) {
-    let angle = (90.0 - (longitude - top_longitude)).to_radians();
-    (center + radius * angle.cos(), center - radius * angle.sin())
+    wheel_point(center, center, radius, longitude, top_longitude)
 }
 
 fn xml_escape(value: &str) -> String {
@@ -248,12 +307,39 @@ fn xml_escape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::polar;
+    use super::{polar, push_aspect_line};
+    use crate::astro::AspectKind;
 
     #[test]
-    fn relationship_midheaven_is_oriented_to_twelve_oclock() {
+    fn relationship_wheel_is_oriented_anticlockwise() {
         let (x, y) = polar(100.0, 50.0, 42.25, 42.25);
         assert!((x - 100.0).abs() < 1e-10);
         assert!((y - 50.0).abs() < 1e-10);
+        let (x, y) = polar(100.0, 50.0, 132.25, 42.25);
+        assert!((x - 50.0).abs() < 1e-10);
+        assert!((y - 100.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn relationship_aspects_keep_distinct_styles_and_evidence() {
+        let mut svg = String::new();
+        for kind in AspectKind::ALL {
+            push_aspect_line(
+                &mut svg,
+                kind,
+                "Sun",
+                "Saturn",
+                0.25,
+                0.8,
+                (10.0, 20.0),
+                (30.0, 40.0),
+                Some("Applying"),
+            );
+        }
+        for class in ["conjunction", "sextile", "square", "trine", "opposition"] {
+            assert!(svg.contains(&format!("class=\"aspect {class}\"")));
+        }
+        assert!(svg.contains("Sun Conjunction Saturn — 0.250° orb, Applying"));
+        assert!(svg.contains("class=\"aspect-marker conjunction\""));
     }
 }

@@ -1,6 +1,7 @@
 //! Deterministic chart-wheel and tabular export renderers.
 
 mod export;
+pub(crate) mod geometry;
 mod relationship;
 mod wheel;
 

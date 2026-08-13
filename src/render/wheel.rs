@@ -1,4 +1,6 @@
-use crate::astro::{AspectKind, Chart, LotKind, PlanetPosition, PointId, ZodiacSign};
+use crate::astro::{AspectKind, Chart, LotKind, PlanetPosition, ZodiacSign};
+
+use super::geometry::{SVG_STYLE, wheel_point};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WheelOptions {
@@ -27,8 +29,8 @@ pub fn render_wheel(chart: &Chart, options: WheelOptions) -> String {
     let aspect_radius = size * 0.225;
     let top_longitude = chart.houses.midheaven;
     let mut svg = format!(
-        r#"<svg class="chart-wheel" viewBox="0 0 {size:.0} {size:.0}" role="img" aria-labelledby="wheel-title wheel-description" xmlns="http://www.w3.org/2000/svg"><title id="wheel-title">{}</title><desc id="wheel-description">Classical septenary chart wheel with houses, planets, lots, and Ptolemaic aspects.</desc><defs><filter id="planet-shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".18"/></filter></defs>"#,
-        xml_escape(&chart.request.title)
+        r#"<svg class="chart-wheel" viewBox="0 0 {size:.0} {size:.0}" role="img" aria-labelledby="wheel-title wheel-description" xmlns="http://www.w3.org/2000/svg"><title id="wheel-title">{}</title><desc id="wheel-description">Classical septenary chart wheel with houses, planets, lots, and Ptolemaic aspects.</desc><defs><style>{SVG_STYLE}</style><filter id="planet-shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".18"/></filter></defs>"#,
+        xml_escape(&chart.request.title),
     );
     svg.push_str(&format!(
         r#"<circle class="wheel-paper" cx="{center:.3}" cy="{center:.3}" r="{outer:.3}"/>"#
@@ -148,23 +150,42 @@ fn draw_houses(
 fn draw_aspects(svg: &mut String, chart: &Chart, center: f64, radius: f64, top_longitude: f64) {
     svg.push_str("<g class=\"aspect-field\">");
     for aspect in &chart.aspects {
-        let Some(left) = point_longitude(chart, aspect.left) else {
+        let Some(left) = chart.point_longitude(aspect.left) else {
             continue;
         };
-        let Some(right) = point_longitude(chart, aspect.right) else {
+        let Some(right) = chart.point_longitude(aspect.right) else {
             continue;
         };
         let (x1, y1) = polar(center, radius, left, top_longitude);
         let (x2, y2) = polar(center, radius, right, top_longitude);
-        let class = match aspect.kind {
-            AspectKind::Conjunction => "conjunction",
-            AspectKind::Sextile | AspectKind::Trine => "harmonious",
-            AspectKind::Square | AspectKind::Opposition => "challenging",
-        };
-        let opacity = (0.22 + (1.0 - (aspect.orb / 10.0).min(1.0)) * 0.58).clamp(0.2, 0.8);
+        let class = aspect_class(aspect.kind);
+        let allowed = chart
+            .orb_policy
+            .allowed_orb(aspect.kind, aspect.left, aspect.right);
+        let strength = 1.0 - (aspect.orb / allowed).clamp(0.0, 1.0);
+        let opacity = 0.28 + strength * 0.62;
+        let title = format!(
+            "{} {} {} — {:.3}° orb, {}",
+            aspect.left.name(),
+            aspect.kind.name(),
+            aspect.right.name(),
+            aspect.orb,
+            aspect.phase.name(),
+        );
         svg.push_str(&format!(
-            r#"<line class="aspect {class}" x1="{x1:.3}" y1="{y1:.3}" x2="{x2:.3}" y2="{y2:.3}" opacity="{opacity:.3}"/>"#
+            r#"<line class="aspect {class}" data-left="{}" data-right="{}" data-orb="{:.6}" x1="{x1:.3}" y1="{y1:.3}" x2="{x2:.3}" y2="{y2:.3}" opacity="{opacity:.3}"><title>{}</title></line>"#,
+            xml_escape(aspect.left.name()),
+            xml_escape(aspect.right.name()),
+            aspect.orb,
+            xml_escape(&title),
         ));
+        if aspect.kind == AspectKind::Conjunction {
+            svg.push_str(&format!(
+                r#"<circle class="aspect-marker conjunction" cx="{:.3}" cy="{:.3}" r="4" opacity="{opacity:.3}"/>"#,
+                f64::midpoint(x1, x2),
+                f64::midpoint(y1, y2),
+            ));
+        }
     }
     svg.push_str("</g>");
 }
@@ -250,19 +271,18 @@ fn draw_center(svg: &mut String, chart: &Chart, center: f64, radius: f64) {
     ));
 }
 
-fn point_longitude(chart: &Chart, point: PointId) -> Option<f64> {
-    match point {
-        PointId::Planet(planet) => chart.planet(planet).map(|position| position.longitude),
-        PointId::Ascendant => Some(chart.houses.ascendant),
-        PointId::Midheaven => Some(chart.houses.midheaven),
-        PointId::LotFortune => chart.lot(LotKind::Fortune).map(|lot| lot.longitude),
-        PointId::LotSpirit => chart.lot(LotKind::Spirit).map(|lot| lot.longitude),
-    }
+fn polar(center: f64, radius: f64, longitude: f64, top_longitude: f64) -> (f64, f64) {
+    wheel_point(center, center, radius, longitude, top_longitude)
 }
 
-fn polar(center: f64, radius: f64, longitude: f64, top_longitude: f64) -> (f64, f64) {
-    let angle = (90.0 - (longitude - top_longitude)).to_radians();
-    (center + radius * angle.cos(), center - radius * angle.sin())
+const fn aspect_class(kind: AspectKind) -> &'static str {
+    match kind {
+        AspectKind::Conjunction => "conjunction",
+        AspectKind::Sextile => "sextile",
+        AspectKind::Square => "square",
+        AspectKind::Trine => "trine",
+        AspectKind::Opposition => "opposition",
+    }
 }
 
 fn annular_sector(
@@ -338,14 +358,23 @@ mod tests {
         let svg = render_wheel(&chart, WheelOptions::default());
         assert_eq!(svg.matches("data-planet=").count(), 7);
         assert!(svg.contains("&lt;Classical&gt;"));
+        for class in ["conjunction", "sextile", "square", "trine", "opposition"] {
+            assert!(svg.contains(&format!("class=\"aspect {class}\"")));
+        }
+        assert!(svg.contains("class=\"aspect-marker conjunction\""));
+        assert!(svg.contains("data-left="));
+        assert!(svg.contains("<style>"));
         assert!(!svg.contains("Uranus"));
         Ok(())
     }
 
     #[test]
-    fn midheaven_is_oriented_to_twelve_oclock() {
+    fn wheel_is_oriented_anticlockwise_from_the_midheaven() {
         let (x, y) = polar(100.0, 50.0, 279.611, 279.611);
         assert!((x - 100.0).abs() < 1e-10);
         assert!((y - 50.0).abs() < 1e-10);
+        let (x, y) = polar(100.0, 50.0, 9.611, 279.611);
+        assert!((x - 50.0).abs() < 1e-10);
+        assert!((y - 100.0).abs() < 1e-10);
     }
 }
