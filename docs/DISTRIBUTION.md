@@ -1,89 +1,100 @@
 # Desktop distribution
 
-Meridian is released as a Tauri 2 desktop application. A release is complete
-only when a non-technical user can install it, launch it from the operating
-system, calculate and save a chart without a network connection, and reopen the
-same chart after restarting the application. The credential-free macOS build
-also requires the documented one-time Gatekeeper approval.
+A Meridian release is complete only when a user can install the native
+application, calculate and archive a chart without a network connection, save
+an optional `.meridian` file, quit, and reopen both the archive entry and the
+file. The credential-free macOS build also requires the documented one-time
+Gatekeeper approval.
 
 ## Release artifacts
 
-The GitHub release workflow builds on each native operating system and attaches
-these user-facing artifacts:
+The GitHub tag workflow builds on each native operating system and publishes
+all of these artifacts together:
 
-- Windows x86-64: signed per-user NSIS setup executable
-- macOS: ad-hoc-signed universal DMG for Apple Silicon and Intel, with no Apple
-  Developer account or notarization dependency
-- Linux x86-64: OpenPGP-signed RPM for Fedora, RHEL-compatible distributions,
-  and openSUSE; DEB for Debian/Ubuntu; and AppImage for portable use, all built
-  on Ubuntu 22.04
+- Linux x86-64: AppImage, DEB, and RPM
+- Windows x86-64: per-user NSIS setup executable
+- macOS: universal DMG containing both Apple Silicon and Intel code
 
-Do not publish the raw executable as the primary download. It omits the data
-resources and platform integration that make Meridian usable as a desktop
-application.
+RPM and DEB are built from the same nFPM manifest and contain the same binary,
+desktop entry, MIME registration, icons, and offline resources. The AppImage,
+DMG, and Windows installer are built by `cargo-packager`. The raw executable is
+not a release download because it lacks the data and operating-system
+integration required by the application.
 
 ## Offline data contract
 
-The installers contain all 102 long-range Swiss Ephemeris files and the three
+Every artifact contains all 102 long-range Swiss Ephemeris files and the three
 GeoNames atlas files. `packaging/data.sha256` pins the exact release bytes.
-`tools/verify-release-data` verifies every digest and the expected ephemeris
-file count before any platform build begins and again on every native runner.
+`tools/verify-release-data` checks every digest and the expected coefficient
+file count before any native build begins and again on every platform runner.
 
-The release workflow downloads the immutable ephemeris revision and the
-reviewed GeoNames snapshot once, verifies them, and passes the same artifact to
-all platform builds. A changed GeoNames upstream snapshot therefore fails the
-release instead of silently producing different Windows, macOS, and Linux
-installers. Updating the atlas requires an intentional manifest update.
+The workflow downloads and verifies the data once, then passes that identical
+artifact to Linux, Windows, and macOS. An upstream atlas change fails the build
+instead of silently producing different installers. Updating the atlas
+therefore requires an intentional manifest change.
 
-At runtime, the coefficient and atlas directories are read-only bundled
-resources. The SQLite chart archive lives in Tauri's per-user application-data
-directory. The supported environment overrides remain available for local
-development but are not required by an installed application.
+Installed resource locations are read-only:
 
-The application itself performs no first-run data download. Windows 10 and 11
-normally provide WebView2 as an operating-system component. On a system whose
-runtime is missing or older than `110.0.1531.0`, the NSIS installer runs the
-visible Microsoft bootstrapper before launch.
+- DEB/RPM: `/usr/share/meridian/data`
+- AppImage: `usr/lib/meridian/data` inside the image
+- Windows: `data` beside `meridian.exe`
+- macOS: `Meridian.app/Contents/Resources/data`
 
-## Signing and trust contract
+The SQLite archive is created in the current user's application-data directory
+at runtime and is never stored beside the bundled resources. The application
+performs no first-run download.
 
-The release workflow refuses to publish the Windows and RPM artifacts unless
-the repository has their required signing credentials. The macOS artifact
-deliberately has no Apple credential dependency.
+## Signing and first launch
 
-Windows repository secrets:
+Signing credentials improve operating-system trust but are not required to
+assemble a complete release.
 
-- `WINDOWS_CERTIFICATE`: raw base64 encoding of the Authenticode PFX bytes
-- `WINDOWS_CERTIFICATE_PASSWORD`
+When `WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD` are configured as
+repository secrets, the workflow Authenticode-signs both `meridian.exe` and the
+NSIS installer with a SHA-256 timestamp. Without them, the same installer is
+published unsigned and Windows displays an **Unknown publisher** confirmation.
 
-Linux repository secret:
+When `LINUX_GPG_PRIVATE_KEY` contains a base64-encoded OpenPGP private key, nFPM
+signs the RPM and the workflow publishes its ASCII-armored public key. Without
+that secret, the RPM remains a normal unsigned package. DEB signing is left to
+a future APT repository; a standalone GitHub release has no repository metadata
+to authenticate.
 
-- `LINUX_GPG_PRIVATE_KEY`: raw base64 encoding of a dedicated, passphrase-free
-  RSA OpenPGP private key used only for release-package signing
+The macOS build always uses Apple's ad-hoc `-` identity. It requires no Apple
+Developer account and is not notarized. On first launch, the user attempts to
+open Meridian, then approves it under **System Settings → Privacy & Security →
+Open Anyway**. macOS remembers the exception. Administrators of managed Macs
+can disable this override.
 
-The Windows runner imports the PFX into its temporary user certificate store
-and generates a Tauri configuration override containing its thumbprint. Tauri
-signs both the application and installer with SHA-256 and a DigiCert timestamp.
-The macOS runner uses Tauri's `-` signing identity to apply the ad-hoc signature
-required by Apple Silicon, but it does not submit the application to Apple.
-Gatekeeper therefore requires the user to attempt one launch and approve
-Meridian under **System Settings → Privacy & Security → Open Anyway**. The Linux
-runner signs the RPM after bundling, replaces the unsigned draft asset, and
-attaches the corresponding ASCII-armored public key to the release.
+Every installer and package receives a GitHub build-provenance attestation.
 
-Every generated installer and package also receives a GitHub build-provenance
-attestation after platform signing is complete.
+## Workflow gates
+
+The release workflow verifies more than successful compilation:
+
+- the Git tag exactly matches the version in `Cargo.toml`;
+- the complete offline data manifest passes on every runner;
+- the AppImage contains both resource directories;
+- the DEB and RPM metadata can be read and each package contains the ephemeris;
+- the macOS DMG mounts, its application passes strict code-signature
+  verification, and both resource directories are present;
+- a Windows installer is produced and its signature is verified when signing
+  credentials are available;
+- publication waits for all five required package formats.
+
+Only after every platform build and attestation succeeds does the final job
+create the GitHub release.
 
 ## Publishing
 
-1. Update the version in `Cargo.toml` and `tauri.conf.json` together.
+1. Update the version in `Cargo.toml` and regenerate `Cargo.lock`.
 2. Run `make check` and `make verify-data`.
-3. Create and push the matching annotated tag, such as `v0.1.0`.
-4. The workflow verifies the tag/version contract, builds a draft release on
-   the three native runners, and publishes it only after all builds and
-   attestations succeed.
-5. Install each artifact on a clean supported system and exercise chart
-   creation, city search, persistence, SVG/CSV export, and offline relaunch.
+3. Create and push a matching annotated tag, such as `v0.2.0`.
+4. Wait for the tag workflow to build, inspect, attest, and publish all five
+   artifacts.
+5. Install each package on a clean supported system and exercise chart
+   creation, city search, archive persistence, `.meridian` file reopening,
+   SVG/CSV export, and an offline relaunch.
 
-The tag, Cargo package version, Tauri bundle version, and GitHub release version
-must be identical. Failed or partial builds remain unpublished.
+The tag, Cargo package version, and GitHub release version must be identical.
+Failed or partial builds are never published.

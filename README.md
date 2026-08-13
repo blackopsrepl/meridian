@@ -1,88 +1,136 @@
 # Meridian
 
 <p align="center">
-  <img src="docs/assets/meridian-mascot.png" width="420" alt="Meridian celestial tortoise mascot with seven classical planetary medallions">
+  <img src="docs/assets/meridian-mascot.png" width="360" alt="Meridian celestial tortoise mascot with seven classical planetary medallions">
 </p>
 
-Meridian is a desktop classical astrology workbench written in Rust. It is
-deliberately limited to the traditional septenary—Sun, Moon, Mercury, Venus,
-Mars, Jupiter, and Saturn—while retaining professional chart calculation,
-comparison, forecasting, ephemeris, and export workflows.
+Meridian is a native desktop application for traditional astrology. It
+calculates charts with the Sun, Moon, Mercury, Venus, Mars, Jupiter, and Saturn
+using local Swiss Ephemeris data. It has no browser interface, account, remote
+service, or network requirement.
 
-The numerical layer reads official Swiss Ephemeris `.se1` coefficient files
-through the stateless pure-Rust `swisseph-rs` engine. Meridian never calls a
-remote astrology service and rejects silent fallback to an analytical
-ephemeris when high-precision mode is requested.
+![Meridian chart workspace with a selected house](docs/assets/screenshots/chart-workspace.png)
+
+## Screenshots
+
+Create a chart from a local date, time, and place:
+
+![Meridian new chart window](docs/assets/screenshots/new-chart.png)
+
+Calculate a planetary ephemeris and ingress list without a network connection:
+
+![Meridian ephemeris table](docs/assets/screenshots/ephemeris.png)
 
 ## Install
 
-Download the installer for your operating system from the latest GitHub
-release:
+Download the package for your computer from the
+[latest release](https://github.com/blackopsrepl/meridian/releases/latest):
 
-- Windows: the signed `-setup.exe` installer
-- macOS: the credential-free, ad-hoc-signed universal `.dmg`
-- Linux: the signed `.rpm` for Fedora, RHEL-compatible distributions, and
-  openSUSE; `.deb` for Debian/Ubuntu; or `.AppImage` for portable use
+- **Fedora, RHEL, openSUSE:** install the `.rpm` package.
+- **Debian, Ubuntu, Linux Mint:** install the `.deb` package.
+- **Other Linux distributions:** download the `.AppImage`, make it executable,
+  and open it. No installation is required.
+- **Windows:** run the setup `.exe`. If the release is not Authenticode-signed,
+  Windows displays an **Unknown publisher** confirmation before installation.
+- **macOS:** open the universal `.dmg` and drag Meridian to Applications. The
+  build is ad-hoc signed and does not require an Apple Developer account. On
+  first launch, macOS requires **System Settings → Privacy & Security → Open
+  Anyway**. This approval is remembered for later launches.
 
-Every installer contains the complete pinned Swiss Ephemeris coefficient set
-and the verified GeoNames atlas. Meridian does not contact an astrology or
-location service and remains fully functional without a network connection.
-On Windows 10 and 11, the required WebView2 runtime is normally already part of
-the operating system. If it is absent or too old, the installer visibly runs
-Microsoft's WebView2 bootstrapper before Meridian starts.
+The installers contain the complete ephemeris and city atlas. Chart
+calculation, city search, the archive, timing techniques, and exports continue
+to work with the computer offline.
 
-The macOS build does not require an Apple Developer account. Because Apple
-does not notarize credential-free applications, first try to open Meridian,
-then open **System Settings → Privacy & Security**, click **Open Anyway**, and
-confirm **Open**. macOS remembers that exception for subsequent launches.
-Administrators of managed Macs may disable this override.
+## Using Meridian
 
-Meridian stores the chart archive in the operating system's per-user
-application-data directory. Application resources remain read-only, so
-upgrading or uninstalling the program does not silently mix user data with the
-installation.
+The left side of the window selects a workspace:
 
-## Develop locally
+- **Current Sky** shows the current chart for Greenwich in UTC.
+- **Charts** opens the local chart archive. Open or delete any archived chart
+  from this list.
+- **New Chart** calculates a natal, event, horary, mundane, or electional chart
+  from a local civil time and place. City search uses the bundled atlas; manual
+  coordinates and time zones remain available.
+- **Ephemeris** produces a dated planetary table, an event list, or a CSV file.
+- **Timing** calculates transits, secondary progressions, solar arc directions,
+  harmonics, profections, firdaria, returns, and planetary hours for the open
+  chart.
+- **Relationships** compares two chart files by synastry, midpoint composite,
+  or Davison method and can export the result as SVG.
+- **Elections** searches a bounded time range and ranks candidate charts by
+  their traditional testimonies.
 
-Requirements: Rust 1.95, Tauri CLI 2.11.4, `curl`, `unzip`, `sha256sum`, and
-the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+The chart wheel resizes with the window and with its pane dividers. Select a
+planet, aspect, sign, house, Ascendant, or Midheaven on the wheel or in the
+positions list to highlight it and show its exact data in the Inspector. The
+Midheaven remains fixed at 12 o'clock.
+
+## Charts and files
+
+Newly calculated charts are added to the SQLite archive automatically. The
+archive is private to the local user account and remains in place when Meridian
+is upgraded.
+
+Use **Save As** when a chart should also exist as a portable `.meridian` file.
+Those files can be opened from Meridian's **Open** command or from the operating
+system's file manager. SVG and CSV are separate export formats; they do not
+replace the editable chart document.
+
+The archive is stored at:
+
+- Linux: `$XDG_DATA_HOME/meridian/meridian.sqlite3`, or
+  `~/.local/share/meridian/meridian.sqlite3` when `XDG_DATA_HOME` is unset
+- Windows: `%LOCALAPPDATA%\Meridian\meridian.sqlite3`
+- macOS: `~/Library/Application Support/Meridian/meridian.sqlite3`
+
+## Calculation scope
+
+Meridian provides tropical apparent geocentric positions, Whole Sign, Equal,
+Porphyry, Alcabitius, Placidus, Regiomontanus, Campanus, and Morinus houses,
+the five Ptolemaic aspects with configurable orbs, essential and accidental
+dignity, reception, sect, lots, antiscia, dodecatemoria, planetary days and
+hours, and traditional time-lord techniques.
+
+High-precision calculation requires the pinned Swiss coefficient files.
+Meridian reports missing data as an error; it does not silently substitute an
+analytical ephemeris or call a remote astrology service. Civil times use IANA
+historical time-zone rules, ambiguous times require an explicit fold, and
+nonexistent local times are rejected.
+
+[`docs/PARITY.md`](docs/PARITY.md) lists the exact calculation and workflow
+scope. [`docs/DOCTRINE.md`](docs/DOCTRINE.md) records the traditional methods
+used by the calculation layer.
+
+## Build from source
+
+Development requires Rust 1.95, `curl`, `unzip`, and `sha256sum`. On Linux,
+install the development packages for Wayland, XKB, D-Bus, and udev before
+building.
 
 ```sh
 make setup
 make run
 ```
 
-`make setup` installs the complete long-range coefficient set (about 100 MB)
-and the local GeoNames world-city atlas. The current atlas snapshot contains
-more than 200,000 cities and administrative seats with alternate names,
-coordinates, elevation, population, and IANA time zones.
-For a faster present-day development setup, run `make data-current` followed by
-`cargo build --locked`; that smaller set covers 1800–2399. The desktop process
-opens its own window and does not bind a TCP port or launch an external browser.
-Set `MERIDIAN_DATABASE`, `MERIDIAN_EPHE_PATH`, or `MERIDIAN_CITY_PATH` to
-override the desktop paths during development.
+`make setup` downloads the complete long-range coefficient set and GeoNames
+atlas, verifies them, and builds the application. For a smaller present-day
+development data set covering 1800–2399, run `make data-current` followed by
+`cargo build --locked`.
 
-## Surfaces
+Use `MERIDIAN_DATABASE`, `MERIDIAN_EPHE_PATH`, or `MERIDIAN_CITY_PATH` to
+override the archive or resource paths during development. Run the complete
+quality gate with `make check`.
 
-- High-precision tropical chart calculation with classical house systems
-- Natal, mundane, horary, electional, synastry, composite, Davison, transit,
-  secondary progression, solar-arc, solar-return, and lunar-return charts
-- Ptolemaic aspects with configurable orbs and applying/separating state
-- Essential and accidental dignity, reception, sect, lots, antiscia,
-  dodecatemoria, planetary days/hours, and traditional time-lord techniques
-- Date-bounded transit/event timelines and printable ephemeris tables
-- Local city autocomplete that resolves canonical coordinates and historical
-  time zones, with optional surveyed-coordinate and fixed-offset overrides
-- SQLite chart archive retaining exact inputs, resolved time, engine revision,
-  coefficient revision, house system, and orb policy
-- HTML/SVG, JSON, and CSV output from the same calculation model
-
-`docs/PARITY.md` tracks the classical subset of Astrodienst's chart surface and
-the exact Meridian workflow that owns each capability.
+Release packaging uses `cargo-packager` 0.11.8 on all three operating systems
+and nFPM 2.47.0 for both DEB and RPM. With those tools installed, `make bundle`
+builds the packages for the current operating system after verifying the full
+offline data set. [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md) contains the
+release contract.
 
 ## Command line
 
-Calculate without starting the desktop application:
+The included `meridian-cli` binary calculates from a JSON request without
+starting the desktop application:
 
 ```sh
 cargo run --locked --bin meridian-cli -- examples/chart-request.json --format json
@@ -90,36 +138,11 @@ cargo run --locked --bin meridian-cli -- examples/chart-request.json --format sv
 cargo run --locked --bin meridian-cli -- examples/chart-request.json --format csv --output chart.csv
 ```
 
-All formats are derived from the same immutable `Chart`; exporters never
-recalculate positions.
+All three formats use the same immutable calculated chart.
 
-## Desktop transport
-
-The desktop UI and its JSON/form transport use a private Tauri custom protocol.
-They are never exposed through a network listener. `docs/API.md` documents that
-internal contract for tests and integrations inside the desktop process.
-
-## Numerical contract
-
-- Tropical, apparent geocentric positions in UT
-- Swiss-file source flag required for every planetary result
-- Official coefficient revision
-  `3fd0f956d73898b91cc4f67cf18b21af656d1342`
-- IANA historical-zone resolution for Gregorian years 1–9999; explicit fixed
-  offsets and Julian dates for earlier work
-- Ambiguous civil times require an explicit fold; nonexistent clock times fail
-- Sect is calculated from the Sun's equatorial altitude, independent of houses
-- Only Sun through Saturn can inhabit the `Planet` type
-- Chart wheels are oriented with the Midheaven fixed at 12 o'clock
-
-Run the complete quality gate with `make check`.
-
-`docs/DISTRIBUTION.md` defines the verified GitHub release process, offline data
-contract, signing credentials, and platform artifacts.
-
-## Licensing
+## License
 
 Meridian is AGPL-3.0-or-later because the default calculation engine is a
-derivative of Swiss Ephemeris. A proprietary deployment must obtain the
-appropriate Swiss Ephemeris Professional License and replace or relicense that
-provider before distribution or public service activation.
+derivative of Swiss Ephemeris. Proprietary distribution requires the
+appropriate Swiss Ephemeris Professional License and a compatible licensing
+choice for the provider.

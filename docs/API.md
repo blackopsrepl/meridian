@@ -1,62 +1,60 @@
-# Internal desktop request contract
+# Native data contract
 
-These routes are dispatched inside the Tauri process through the private
-`meridian` custom protocol. Meridian does not bind a TCP socket, publish an
-HTTP service, or accept requests from another process. The HTTP-shaped request
-and response types remain an internal adapter because they allow the existing
-Rust-rendered forms, exports, and focused route tests to share one contract.
-JSON failures return a structured `{ "error", "status" }` body.
+Meridian has no HTTP API, web route, custom protocol, or browser transport. The
+Iced desktop widgets call the Rust calculation, location, persistence, timing,
+relationship, election, and export modules directly. `meridian-cli` uses those
+same modules without starting the window system.
 
-## Charts
+## Chart requests
 
-`POST /api/v1/calculate` accepts either a `ChartRequest` or
-`{ "chart": ChartRequest, "orb_policy": OrbPolicy }` and returns a calculated
-`Chart`. `POST /api/v1/charts` accepts the same payload and returns a persisted
-`ChartRecord` with a UUIDv7 identifier. The archive endpoints are:
+`ChartRequest` is the complete calculation input. It records the chart title
+and purpose, civil date and time, Gregorian or Julian calendar, IANA time zone
+or fixed offset, location name, coordinates, elevation, and traditional house
+system. `OrbPolicy` records the aspect-orb settings separately.
 
-- `GET /api/v1/charts`
-- `GET /api/v1/charts/{id}`
-- `DELETE /api/v1/charts/{id}`
+Desktop city search resolves a selected GeoNames identifier against the bundled
+atlas. Unless manual location entry is enabled, the atlas coordinates,
+elevation, and IANA time zone are used as one canonical location record.
 
-Desktop chart creation resolves the submitted GeoNames `city_id` against the
-bundled local atlas. Unless an explicit manual override is enabled, posted
-coordinate or time-zone fields are ignored and the canonical atlas values are
-stored in the chart request.
+## Portable chart documents
+
+`.meridian` files contain a versioned `ChartDocument` serialized as JSON. A
+document retains the original `ChartRequest`, resolved UT instant, calculation
+provenance, house cusps, positions, aspects, dignities, lots, and derived
+points. Opening a document does not recalculate it.
+
+The desktop registers `application/x-meridian-chart` on Linux and the
+`.meridian` extension on Windows and macOS. It also provides explicit **Open**,
+**Save**, and **Save As** commands.
+
+## Local archive
+
+`Store` owns the per-user SQLite archive. A newly calculated chart and an
+election candidate opened as a chart are inserted automatically. The archive
+stores the complete `Chart`, engine version, coefficient revision, and creation
+time under a UUIDv7 identifier. Archive operations are list, retrieve, insert,
+and delete; no database connection is exposed outside the process.
 
 ## Locations
 
-`GET /api/v1/locations?q={name}&limit={count}` searches canonical, ASCII, and
-alternate city names together with country and first-level administrative
-names. Queries shorter than two characters return no results; `limit` is
-capped at 20. Results include the stable GeoNames identifier, display name,
-WGS84 coordinates, elevation, population, and IANA time zone.
+`CityIndex` searches canonical, ASCII, and alternate city names together with
+country and first-level administrative names. Queries shorter than two
+characters return no results. Each match includes its stable GeoNames ID,
+display name, WGS84 coordinates, elevation, population, and IANA time zone.
 
-## Timing
+## Timing and relationships
 
-`GET /api/v1/charts/{id}/timing` requires `technique` and `target=YYYY-MM-DD`.
-Supported technique keys are `transits`, `secondary`, `solar_arc`,
-`solar_return`, `lunar_return`, `profection`, `firdaria`, `harmonic`, and
-`planetary_hours`. Transits also require `end`. Optional parameters are `age`,
-`harmonic`, `location`, `latitude`, `longitude`, `elevation`, and `houses`.
-Coordinates and houses relocate return charts and planetary hours; omitted
-values retain the radix place.
+The timing layer accepts an open radix chart plus the selected technique and
+its typed settings. It supports transits, secondary progressions, solar arc,
+solar and lunar returns, profection, firdaria, harmonics, and planetary hours.
+Return charts and planetary hours can use a relocated place.
 
-## Relationships
+Relationship calculation consumes two complete chart documents and applies
+synastry, circular-midpoint composite, or Davison calculation. It never looks
+up charts by a remote identifier.
 
-`GET /api/v1/relationships?first={id}&second={id}&method={method}` accepts
-`synastry`, `composite`, or `davison`. The corresponding desktop workspace can
-download a standalone SVG from `/tools/relationships.svg` with the same query.
+## Exports
 
-## Ephemeris and events
-
-`GET /api/v1/ephemeris?start_jd={jd}&rows={count}&step={days}` returns a
-septenary table. `GET /api/v1/events?start_jd={jd}&end_jd={jd}` returns exact
-ingresses, stations, new/full moons, and solar/lunar eclipses. The desktop
-ephemeris route also exports tidy CSV.
-
-## Elections
-
-`POST /api/v1/elections` accepts `ElectionRequest`: a UT interval, step in
-minutes, location, traditional house system, topic, and result limit. The
-response retains the full chart and every scored testimony for each candidate.
-Intervals are capped at 366 days and 50,000 evaluated charts.
+SVG, JSON, and CSV are projections of an already calculated chart. Exporters do
+not call the ephemeris or modify the SQLite archive. Ephemeris CSV and
+relationship SVG follow the same rule.

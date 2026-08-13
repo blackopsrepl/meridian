@@ -17,10 +17,10 @@ horoscopes.
 | Solar-arc directions | Directed chart and natal contacts |
 | Solar/lunar returns | Numerically solved return chart for a selected location |
 | Harmonic chart | Integer harmonic transform over the septenary |
-| Ephemeris tables | Daily/monthly septenary tables in HTML, JSON, and CSV |
+| Ephemeris tables | Native dated septenary tables, event lists, and CSV export |
 | House-system selection | Whole-sign, equal, Porphyry, Alcabitius, Placidus, Regiomontanus, Campanus, Morinus |
 | Aspect/orb options | Five Ptolemaic aspects with per-aspect and luminary orbs |
-| Chart drawing PDF/data PDF | Print-ready MC-at-top report plus SVG, JSON, and CSV downloads |
+| Chart drawing PDF/data PDF | Resizable MC-at-top native wheel plus SVG, JSON, and CSV export |
 | Atlas and time-zone conversion | Local GeoNames city/alternate-name search, automatic IANA zone resolution, advanced coordinate/offset overrides, and return relocation |
 
 ## Deliberate exclusions
