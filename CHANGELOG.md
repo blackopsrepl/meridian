@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.2.1](http://vigilance:3002/pvd/meridian/compare/v0.2.0...v0.2.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **aspects:** classify phase from relative motion ([18932e2](http://vigilance:3002/pvd/meridian/commit/18932e2c8f2da8628550221b4dbfde06a71d4f9d))
+* **chart:** make every aspect visually traceable ([7bc7c26](http://vigilance:3002/pvd/meridian/commit/7bc7c26a549a5ac1cf5e5dbbb6d950bd9baab265))
+
 ## [0.2.0](http://vigilance:3002/pvd/meridian/compare/v0.1.0...v0.2.0) (2026-08-13)
 
 ## 0.1.0 (2026-08-13)
