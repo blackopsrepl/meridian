@@ -36,6 +36,6 @@ pub use timing::{
 };
 pub use types::{
     Calendar, ChartPurpose, ChartRequest, CivilDateTime, Coordinates, Element, HouseCusps,
-    Modality, Planet, PlanetPosition, PointId, Sect, TimeZoneSpec, TraditionalHouseSystem,
-    ZodiacSign,
+    Modality, Planet, PlanetPosition, PointId, PrimaryQuality, Sect, Temperament, TimeZoneSpec,
+    TraditionalHouseMotto, TraditionalHouseSystem, ZodiacSign,
 };

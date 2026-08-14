@@ -16,6 +16,20 @@ Jupiter, and Saturn and is exhaustively matched throughout the code.
   day/night reversals
 - Antiscia, contra-antiscia, and dodecatemoria for every lot
 
+## Inspector terminology
+
+The chart inspector identifies houses with the common medieval Latin sequence
+`Vita`, `Lucrum`, `Fratres`, `Genitor`, `Nati`, `Valetudo`, `Uxor`, `Mors`,
+`Iter`, `Regnum`, `Benefacta`, and `Carcer`. These are house mottos and do not
+imply a modern sign-to-house correspondence.
+
+Elemental properties use the traditional primary qualities: fire is hot and
+dry, air hot and moist, water cold and moist, and earth cold and dry. Their
+temperaments are respectively choleric, sanguine, phlegmatic, and melancholic.
+Planetary qualities shown in the inspector are inherent baseline qualities;
+they are not a computed natal temperament and do not override sign, phase,
+sect, or aspect conditions.
+
 ## Aspect policy
 
 The chart reports conjunction, sextile, square, trine, and opposition. It uses

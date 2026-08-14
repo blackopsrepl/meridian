@@ -81,6 +81,35 @@ impl Planet {
             Self::Saturn => 12,
         }
     }
+
+    #[must_use]
+    pub const fn traditional_qualities(self) -> [PrimaryQuality; 2] {
+        match self {
+            Self::Sun | Self::Mars => [PrimaryQuality::Hot, PrimaryQuality::Dry],
+            Self::Jupiter => [PrimaryQuality::Hot, PrimaryQuality::Moist],
+            Self::Moon | Self::Venus => [PrimaryQuality::Cold, PrimaryQuality::Moist],
+            Self::Mercury | Self::Saturn => [PrimaryQuality::Cold, PrimaryQuality::Dry],
+        }
+    }
+
+    #[must_use]
+    pub const fn sect_affiliation(self) -> Option<Sect> {
+        match self {
+            Self::Sun | Self::Jupiter | Self::Saturn => Some(Sect::Day),
+            Self::Moon | Self::Venus | Self::Mars => Some(Sect::Night),
+            Self::Mercury => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn traditional_nature(self) -> &'static str {
+        match self {
+            Self::Jupiter | Self::Venus => "Benefic",
+            Self::Mars | Self::Saturn => "Malefic",
+            Self::Sun | Self::Moon => "Luminary",
+            Self::Mercury => "Convertible",
+        }
+    }
 }
 
 impl fmt::Display for Planet {
@@ -235,7 +264,59 @@ pub enum Element {
     Water,
 }
 
+impl Element {
+    #[must_use]
+    pub const fn qualities(self) -> [PrimaryQuality; 2] {
+        match self {
+            Self::Fire => [PrimaryQuality::Hot, PrimaryQuality::Dry],
+            Self::Earth => [PrimaryQuality::Cold, PrimaryQuality::Dry],
+            Self::Air => [PrimaryQuality::Hot, PrimaryQuality::Moist],
+            Self::Water => [PrimaryQuality::Cold, PrimaryQuality::Moist],
+        }
+    }
+
+    #[must_use]
+    pub const fn temperament(self) -> Temperament {
+        match self {
+            Self::Fire => Temperament::Choleric,
+            Self::Earth => Temperament::Melancholic,
+            Self::Air => Temperament::Sanguine,
+            Self::Water => Temperament::Phlegmatic,
+        }
+    }
+}
+
 impl fmt::Display for Element {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrimaryQuality {
+    Hot,
+    Cold,
+    Moist,
+    Dry,
+}
+
+impl fmt::Display for PrimaryQuality {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Temperament {
+    Choleric,
+    Melancholic,
+    Sanguine,
+    Phlegmatic,
+}
+
+impl fmt::Display for Temperament {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{self:?}")
     }
@@ -265,6 +346,79 @@ pub enum Sect {
 impl fmt::Display for Sect {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{self:?}")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TraditionalHouseMotto {
+    Vita,
+    Lucrum,
+    Fratres,
+    Genitor,
+    Nati,
+    Valetudo,
+    Uxor,
+    Mors,
+    Iter,
+    Regnum,
+    Benefacta,
+    Carcer,
+}
+
+impl TraditionalHouseMotto {
+    #[must_use]
+    pub const fn from_house_number(house: u8) -> Option<Self> {
+        match house {
+            1 => Some(Self::Vita),
+            2 => Some(Self::Lucrum),
+            3 => Some(Self::Fratres),
+            4 => Some(Self::Genitor),
+            5 => Some(Self::Nati),
+            6 => Some(Self::Valetudo),
+            7 => Some(Self::Uxor),
+            8 => Some(Self::Mors),
+            9 => Some(Self::Iter),
+            10 => Some(Self::Regnum),
+            11 => Some(Self::Benefacta),
+            12 => Some(Self::Carcer),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn latin(self) -> &'static str {
+        match self {
+            Self::Vita => "Vita",
+            Self::Lucrum => "Lucrum",
+            Self::Fratres => "Fratres",
+            Self::Genitor => "Genitor",
+            Self::Nati => "Nati",
+            Self::Valetudo => "Valetudo",
+            Self::Uxor => "Uxor",
+            Self::Mors => "Mors",
+            Self::Iter => "Iter",
+            Self::Regnum => "Regnum",
+            Self::Benefacta => "Benefacta",
+            Self::Carcer => "Carcer",
+        }
+    }
+
+    #[must_use]
+    pub const fn translation(self) -> &'static str {
+        match self {
+            Self::Vita => "Life",
+            Self::Lucrum => "Gain",
+            Self::Fratres => "Siblings",
+            Self::Genitor => "Parent",
+            Self::Nati => "Children",
+            Self::Valetudo => "Health",
+            Self::Uxor => "Spouse",
+            Self::Mors => "Death",
+            Self::Iter => "Journey",
+            Self::Regnum => "Kingdom",
+            Self::Benefacta => "Good deeds",
+            Self::Carcer => "Prison",
+        }
     }
 }
 
@@ -517,4 +671,56 @@ pub fn normalize_degrees(value: f64) -> f64 {
 pub fn angular_distance(left: f64, right: f64) -> f64 {
     let difference = (normalize_degrees(left) - normalize_degrees(right)).abs();
     difference.min(360.0 - difference)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Element, Planet, PrimaryQuality, TraditionalHouseMotto};
+
+    #[test]
+    fn elemental_qualities_follow_the_traditional_pairs() {
+        assert_eq!(
+            Element::Fire.qualities(),
+            [PrimaryQuality::Hot, PrimaryQuality::Dry]
+        );
+        assert_eq!(
+            Element::Earth.qualities(),
+            [PrimaryQuality::Cold, PrimaryQuality::Dry]
+        );
+        assert_eq!(
+            Element::Air.qualities(),
+            [PrimaryQuality::Hot, PrimaryQuality::Moist]
+        );
+        assert_eq!(
+            Element::Water.qualities(),
+            [PrimaryQuality::Cold, PrimaryQuality::Moist]
+        );
+    }
+
+    #[test]
+    fn planetary_qualities_cover_the_classical_septenary() {
+        let qualities = Planet::ALL.map(Planet::traditional_qualities);
+
+        assert_eq!(qualities[0], [PrimaryQuality::Hot, PrimaryQuality::Dry]);
+        assert_eq!(qualities[1], [PrimaryQuality::Cold, PrimaryQuality::Moist]);
+        assert_eq!(qualities[2], [PrimaryQuality::Cold, PrimaryQuality::Dry]);
+        assert_eq!(qualities[3], [PrimaryQuality::Cold, PrimaryQuality::Moist]);
+        assert_eq!(qualities[4], [PrimaryQuality::Hot, PrimaryQuality::Dry]);
+        assert_eq!(qualities[5], [PrimaryQuality::Hot, PrimaryQuality::Moist]);
+        assert_eq!(qualities[6], [PrimaryQuality::Cold, PrimaryQuality::Dry]);
+    }
+
+    #[test]
+    fn medieval_house_mottos_cover_all_twelve_houses() {
+        let names = (1..=12)
+            .filter_map(TraditionalHouseMotto::from_house_number)
+            .map(TraditionalHouseMotto::latin)
+            .collect::<Vec<_>>();
+
+        assert_eq!(names.len(), 12);
+        assert_eq!(names[0], "Vita");
+        assert_eq!(names[11], "Carcer");
+        assert!(TraditionalHouseMotto::from_house_number(0).is_none());
+        assert!(TraditionalHouseMotto::from_house_number(13).is_none());
+    }
 }
