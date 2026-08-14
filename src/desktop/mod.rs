@@ -18,7 +18,8 @@ use iced::{Center, Color, Element, Fill, Length, Size, Subscription, Task, Theme
 
 use crate::astro::{
     AspectPhase, Calendar, Chart, ChartCalculator, ChartPurpose, ChartRequest, CivilDateTime,
-    Coordinates, LotKind, SwissEphemerisProvider, TimeZoneSpec, TraditionalHouseSystem,
+    Coordinates, LotKind, MercuryNature, MercuryTendency, Planet, PrimaryQuality,
+    SwissEphemerisProvider, TimeZoneSpec, TraditionalHouseMotto, TraditionalHouseSystem,
 };
 use crate::document::{CHART_EXTENSION, ChartDocument};
 use crate::locations::CityIndex;
@@ -105,6 +106,8 @@ enum Message {
     ChartExported(Result<PathBuf, String>),
     Inspect(Inspection),
     PaneResized(pane_grid::ResizeEvent),
+    FocusNext,
+    FocusPrevious,
     NewChart(new_chart::Message),
     Ephemeris(ephemeris::Message),
     Timing(timing::Message),
@@ -306,6 +309,8 @@ impl Desktop {
                 self.panes.resize(split, ratio);
                 Task::none()
             }
+            Message::FocusNext => iced::widget::operation::focus_next(),
+            Message::FocusPrevious => iced::widget::operation::focus_previous(),
             Message::NewChart(new_chart::Message::Calculate) => {
                 let result = self
                     .new_chart
@@ -712,11 +717,21 @@ impl Desktop {
             Some(Inspection::Planet(planet)) => chart.planet(planet).map_or_else(
                 || column![text("Planet not found")],
                 |position| {
+                    let qualities = position.planet.traditional_qualities();
                     column![
                         text(format!("{}  {}", planet.glyph(), planet)).size(20),
                         key_value("Position", format_position(position.longitude)),
                         key_value("Sign", position.sign.name()),
                         key_value("House", position.house.to_string()),
+                        key_value("Qualities", format_qualities(qualities)),
+                        planet_nature_view(chart, planet),
+                        key_value(
+                            "Sect",
+                            planet.sect_affiliation().map_or("Common", |sect| match sect {
+                                crate::astro::Sect::Day => "Diurnal",
+                                crate::astro::Sect::Night => "Nocturnal",
+                            })
+                        ),
                         key_value(
                             "Motion",
                             if position.retrograde { "Retrograde" } else { "Direct" }
@@ -775,21 +790,39 @@ impl Desktop {
                     .spacing(9)
                 },
             ),
-            Some(Inspection::Sign(sign)) => column![
-                text(format!("{}  {}", sign.glyph(), sign)).size(20),
-                key_value("Element", format!("{:?}", sign.element())),
-                key_value("Modality", format!("{:?}", sign.modality())),
-                key_value("Ruler", sign.ruler().name()),
-                key_value("Tropical span", {
-                    let start = u16::from(sign.index()) * 30;
-                    format!("{start}°–{}°", start + 30)
-                }),
-            ]
-            .spacing(9),
+            Some(Inspection::Sign(sign)) => {
+                let element = sign.element();
+                column![
+                    text(format!("{}  {}", sign.glyph(), sign)).size(20),
+                    key_value("Element", element.to_string()),
+                    key_value("Qualities", format_qualities(element.qualities())),
+                    key_value("Temperament", element.temperament().to_string()),
+                    key_value("Modality", sign.modality().to_string()),
+                    key_value("Ruler", sign.ruler().name()),
+                    key_value("Tropical span", {
+                        let start = u16::from(sign.index()) * 30;
+                        format!("{start}°–{}°", start + 30)
+                    }),
+                ]
+                .spacing(9)
+            }
             Some(Inspection::House(house)) => {
                 let cusp = chart.houses.cusps[usize::from(house.saturating_sub(1))];
+                let motto = TraditionalHouseMotto::from_house_number(house);
                 column![
-                    text(format!("House {house}")).size(20),
+                    text(motto.map_or_else(
+                        || format!("House {house}"),
+                        |motto| format!("House {house} — {}", motto.latin())
+                    ))
+                    .size(20),
+                    key_value(
+                        "Traditional name",
+                        motto.map_or("Unavailable", TraditionalHouseMotto::latin)
+                    ),
+                    key_value(
+                        "Translation",
+                        motto.map_or("Unavailable", TraditionalHouseMotto::translation)
+                    ),
                     key_value("Cusp", format_position(cusp)),
                     key_value("System", chart.houses.system.name()),
                     text(house_description(house)).size(12).color(MUTED),
@@ -864,17 +897,7 @@ impl Desktop {
             let keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
                 return None;
             };
-            if !modifiers.command() {
-                return None;
-            }
-            match key.as_ref() {
-                keyboard::Key::Character("n") => Some(Message::NewDocument),
-                keyboard::Key::Character("o") => Some(Message::OpenDocument),
-                keyboard::Key::Character("s") if modifiers.shift() => Some(Message::SaveDocumentAs),
-                keyboard::Key::Character("s") => Some(Message::SaveDocument),
-                keyboard::Key::Character("w") => Some(Message::CloseDocument),
-                _ => None,
-            }
+            keyboard_message(key, modifiers)
         })
     }
 
@@ -932,6 +955,34 @@ impl Desktop {
 
     fn has_unsaved_document(&self) -> bool {
         self.document.is_some() && self.document_path.is_none() && self.archive_id.is_none()
+    }
+}
+
+fn keyboard_message(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
+    if matches!(
+        key.as_ref(),
+        keyboard::Key::Named(keyboard::key::Named::Tab)
+    ) && !modifiers.control()
+        && !modifiers.alt()
+        && !modifiers.logo()
+    {
+        return Some(if modifiers.shift() {
+            Message::FocusPrevious
+        } else {
+            Message::FocusNext
+        });
+    }
+
+    if !modifiers.command() {
+        return None;
+    }
+    match key.as_ref() {
+        keyboard::Key::Character("n") => Some(Message::NewDocument),
+        keyboard::Key::Character("o") => Some(Message::OpenDocument),
+        keyboard::Key::Character("s") if modifiers.shift() => Some(Message::SaveDocumentAs),
+        keyboard::Key::Character("s") => Some(Message::SaveDocument),
+        keyboard::Key::Character("w") => Some(Message::CloseDocument),
+        _ => None,
     }
 }
 
@@ -1224,6 +1275,108 @@ fn key_value(label: &str, value: impl Into<String>) -> Element<'_, Message> {
     .into()
 }
 
+fn format_qualities([first, second]: [PrimaryQuality; 2]) -> String {
+    format!("{first} · {second}")
+}
+
+fn planet_nature_view(chart: &Chart, planet: Planet) -> Element<'_, Message> {
+    if planet != Planet::Mercury {
+        return key_value("Nature", planet.traditional_nature());
+    }
+
+    let nature = chart.mercury_nature();
+    let color = mercury_tendency_color(nature.tendency);
+    let explanation = mercury_nature_explanation(&nature);
+    let contacts = mercury_contact_summary(&nature);
+    container(
+        column![
+            row![
+                text("NATURE").size(10).color(MUTED).width(Length::Fill),
+                text(nature.tendency.label()).size(13).color(color),
+            ],
+            text(explanation).size(12).width(Fill),
+            text(contacts).size(11).color(MUTED).width(Fill),
+        ]
+        .spacing(6),
+    )
+    .padding(10)
+    .style(move |_theme| {
+        container::Style::default()
+            .background(Color::from_rgba(color.r, color.g, color.b, 0.09))
+            .border(iced::Border {
+                color,
+                width: 1.0,
+                radius: 5.0.into(),
+            })
+    })
+    .into()
+}
+
+fn mercury_nature_explanation(nature: &MercuryNature) -> String {
+    if let Some(testimony) = nature.decisive {
+        let planet_nature = testimony.planet.traditional_nature().to_ascii_lowercase();
+        let tendency = match nature.tendency {
+            MercuryTendency::Benefic => "benefic",
+            MercuryTendency::Malefic => "malefic",
+            MercuryTendency::Mixed | MercuryTendency::Convertible => "convertible",
+        };
+        return format!(
+            "Closest testimony: {} {} to {} ({:.3}° orb). {} is {}, so Mercury leans {} here.",
+            testimony.phase.name().to_ascii_lowercase(),
+            testimony.kind.name().to_ascii_lowercase(),
+            testimony.planet,
+            testimony.orb,
+            testimony.planet,
+            planet_nature,
+            tendency,
+        );
+    }
+
+    match nature.tendency {
+        MercuryTendency::Mixed => {
+            "The closest benefic and malefic contacts are equally exact, so Mercury remains mixed."
+                .to_owned()
+        }
+        MercuryTendency::Convertible => {
+            "No aspect joins Mercury to Venus, Jupiter, Mars or Saturn inside the current orb policy."
+                .to_owned()
+        }
+        MercuryTendency::Benefic | MercuryTendency::Malefic => {
+            "No decisive testimony is available.".to_owned()
+        }
+    }
+}
+
+fn mercury_contact_summary(nature: &MercuryNature) -> String {
+    if nature.testimonies.is_empty() {
+        return "Contacts considered: none".to_owned();
+    }
+    let contacts = nature
+        .testimonies
+        .iter()
+        .map(|testimony| {
+            format!(
+                "{} {} {:.3}° {}",
+                testimony.planet.glyph(),
+                testimony.kind.glyph(),
+                testimony.orb,
+                testimony.phase.name().to_ascii_lowercase(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" · ");
+    format!("Contacts considered: {contacts}")
+}
+
+fn mercury_tendency_color(tendency: MercuryTendency) -> Color {
+    match tendency {
+        MercuryTendency::Benefic => Color::from_rgb8(74, 222, 128),
+        MercuryTendency::Malefic => Color::from_rgb8(248, 113, 113),
+        MercuryTendency::Mixed => Color::from_rgb8(245, 183, 72),
+        MercuryTendency::Convertible => Color::from_rgb8(96, 165, 250),
+    }
+}
+
 fn format_position(longitude: f64) -> String {
     let sign = crate::astro::ZodiacSign::from_longitude(longitude);
     let degree = longitude.rem_euclid(30.0);
@@ -1337,3 +1490,31 @@ fn pane_style(_theme: &Theme) -> container::Style {
 
 const MUTED: Color = Color::from_rgb(0.51, 0.57, 0.67);
 const ACCENT: Color = Color::from_rgb(0.30, 0.82, 0.72);
+
+#[cfg(test)]
+mod tests {
+    use iced::keyboard;
+
+    use super::{Message, keyboard_message};
+
+    #[test]
+    fn tab_moves_focus_in_both_directions() {
+        let tab = keyboard::Key::Named(keyboard::key::Named::Tab);
+
+        assert!(matches!(
+            keyboard_message(tab.clone(), keyboard::Modifiers::NONE),
+            Some(Message::FocusNext)
+        ));
+        assert!(matches!(
+            keyboard_message(tab, keyboard::Modifiers::SHIFT),
+            Some(Message::FocusPrevious)
+        ));
+    }
+
+    #[test]
+    fn modified_tab_is_left_to_the_platform() {
+        let tab = keyboard::Key::Named(keyboard::key::Named::Tab);
+
+        assert!(keyboard_message(tab, keyboard::Modifiers::CTRL).is_none());
+    }
+}

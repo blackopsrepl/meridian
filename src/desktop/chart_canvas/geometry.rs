@@ -123,4 +123,7 @@ pub(super) const HOUSE_SELECTED: Color = Color::from_rgba(0.20, 0.72, 0.64, 0.14
 pub(super) const ANGLE: Color = Color::from_rgb(0.96, 0.71, 0.35);
 pub(super) const ACCENT: Color = Color::from_rgb(0.30, 0.82, 0.72);
 pub(super) const ACCENT_BRIGHT: Color = Color::from_rgb(0.55, 0.96, 0.86);
+pub(super) const BENEFIC: Color = Color::from_rgb8(74, 222, 128);
+pub(super) const MALEFIC: Color = Color::from_rgb8(248, 113, 113);
+pub(super) const MIXED: Color = Color::from_rgb8(245, 183, 72);
 pub(super) const DANGER: Color = Color::from_rgb(0.98, 0.45, 0.45);

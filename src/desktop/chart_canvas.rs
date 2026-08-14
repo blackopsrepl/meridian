@@ -6,12 +6,13 @@ use iced::mouse;
 use iced::widget::canvas::{self, Canvas, Event, Frame, Geometry, Path, Stroke};
 use iced::{Element, Fill, Font, Point, Rectangle, Renderer, Size, Theme};
 
-use crate::astro::{AspectKind, Chart, LotKind, PointId, ZodiacSign};
+use crate::astro::{AspectKind, Chart, LotKind, MercuryTendency, Planet, PointId, ZodiacSign};
 
 use geometry::{
-    ACCENT, ACCENT_BRIGHT, ACCENT_SOFT, ANGLE, BACKGROUND, BORDER, BORDER_STRONG, DANGER,
-    HOUSE_LINE, HOUSE_SELECTED, LOT_BACKGROUND, LOT_BORDER, Metrics, PLANET_BACKGROUND, RING_A,
-    RING_B, TEXT, TEXT_MUTED, annular_sector, aspect_color, distance, point_segment_distance,
+    ACCENT, ACCENT_BRIGHT, ACCENT_SOFT, ANGLE, BACKGROUND, BENEFIC, BORDER, BORDER_STRONG, DANGER,
+    HOUSE_LINE, HOUSE_SELECTED, LOT_BACKGROUND, LOT_BORDER, MALEFIC, MIXED, Metrics,
+    PLANET_BACKGROUND, RING_A, RING_B, TEXT, TEXT_MUTED, annular_sector, aspect_color, distance,
+    point_segment_distance,
 };
 pub use inspection::Inspection;
 
@@ -273,6 +274,18 @@ impl ChartCanvas<'_> {
     fn draw_planets(&self, frame: &mut Frame, metrics: &Metrics) {
         for (position, center) in self.planet_markers(metrics) {
             let selected = self.point_emphasized(PointId::Planet(position.planet));
+            let (selected_fill, selected_border) = if selected && position.planet == Planet::Mercury
+            {
+                let color = match self.chart.mercury_nature().tendency {
+                    MercuryTendency::Benefic => BENEFIC,
+                    MercuryTendency::Malefic => MALEFIC,
+                    MercuryTendency::Mixed => MIXED,
+                    MercuryTendency::Convertible => ACCENT,
+                };
+                (color, color)
+            } else {
+                (ACCENT, ACCENT_BRIGHT)
+            };
             let anchor = metrics.point(position.longitude, metrics.sign_inner - 3.0);
             frame.stroke(
                 &Path::line(anchor, center),
@@ -280,14 +293,18 @@ impl ChartCanvas<'_> {
             );
             frame.fill(
                 &Path::circle(center, if selected { 16.0 } else { 13.0 }),
-                if selected { ACCENT } else { PLANET_BACKGROUND },
+                if selected {
+                    selected_fill
+                } else {
+                    PLANET_BACKGROUND
+                },
             );
             frame.stroke(
                 &Path::circle(center, if selected { 16.0 } else { 13.0 }),
                 Stroke::default()
                     .with_width(if selected { 2.0 } else { 1.0 })
                     .with_color(if selected {
-                        ACCENT_BRIGHT
+                        selected_border
                     } else {
                         BORDER_STRONG
                     }),
