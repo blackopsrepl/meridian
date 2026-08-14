@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::aspects::{AspectHit, AspectPoint, OrbPolicy, find_aspects};
+use super::aspects::{AspectHit, AspectKind, AspectPhase, AspectPoint, OrbPolicy, find_aspects};
 use super::dignity::{Almuten, PlanetCondition, calculate_almuten, calculate_conditions};
 use super::ephemeris::{DATA_REVISION, ENGINE_VERSION, EphemerisError, SwissEphemerisProvider};
 use super::lots::{Lot, LotError, LotKind, calculate_lots};
@@ -70,6 +70,84 @@ pub struct Chart {
     pub metadata: ChartMetadata,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MercuryTendency {
+    Benefic,
+    Malefic,
+    Mixed,
+    Convertible,
+}
+
+impl MercuryTendency {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Benefic => "Leans benefic",
+            Self::Malefic => "Leans malefic",
+            Self::Mixed => "Mixed testimony",
+            Self::Convertible => "Convertible",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct MercuryTestimony {
+    pub planet: Planet,
+    pub kind: AspectKind,
+    pub orb: f64,
+    pub phase: AspectPhase,
+    pub partile: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MercuryNature {
+    pub tendency: MercuryTendency,
+    pub decisive: Option<MercuryTestimony>,
+    pub testimonies: Vec<MercuryTestimony>,
+}
+
+impl MercuryNature {
+    #[must_use]
+    pub fn from_aspects(aspects: &[AspectHit]) -> Self {
+        let mut testimonies = aspects
+            .iter()
+            .filter_map(mercury_testimony)
+            .collect::<Vec<_>>();
+        testimonies.sort_by(|left, right| {
+            left.orb
+                .total_cmp(&right.orb)
+                .then_with(|| left.planet.cmp(&right.planet))
+        });
+
+        let closest_benefic = testimonies
+            .iter()
+            .find(|testimony| is_benefic(testimony.planet));
+        let closest_malefic = testimonies
+            .iter()
+            .find(|testimony| is_malefic(testimony.planet));
+
+        let (tendency, decisive) = match (closest_benefic, closest_malefic) {
+            (None, None) => (MercuryTendency::Convertible, None),
+            (Some(testimony), None) => (MercuryTendency::Benefic, Some(*testimony)),
+            (None, Some(testimony)) => (MercuryTendency::Malefic, Some(*testimony)),
+            (Some(benefic), Some(malefic)) if (benefic.orb - malefic.orb).abs() <= 1e-6 => {
+                (MercuryTendency::Mixed, None)
+            }
+            (Some(benefic), Some(malefic)) if benefic.orb < malefic.orb => {
+                (MercuryTendency::Benefic, Some(*benefic))
+            }
+            (Some(_), Some(malefic)) => (MercuryTendency::Malefic, Some(*malefic)),
+        };
+
+        Self {
+            tendency,
+            decisive,
+            testimonies,
+        }
+    }
+}
+
 impl Chart {
     #[must_use]
     pub fn planet(&self, planet: Planet) -> Option<&PlanetPosition> {
@@ -93,6 +171,37 @@ impl Chart {
             PointId::LotSpirit => self.lot(LotKind::Spirit).map(|lot| lot.longitude),
         }
     }
+
+    #[must_use]
+    pub fn mercury_nature(&self) -> MercuryNature {
+        MercuryNature::from_aspects(&self.aspects)
+    }
+}
+
+fn mercury_testimony(aspect: &AspectHit) -> Option<MercuryTestimony> {
+    let ((PointId::Planet(Planet::Mercury), PointId::Planet(other))
+    | (PointId::Planet(other), PointId::Planet(Planet::Mercury))) = (aspect.left, aspect.right)
+    else {
+        return None;
+    };
+    if !is_benefic(other) && !is_malefic(other) {
+        return None;
+    }
+    Some(MercuryTestimony {
+        planet: other,
+        kind: aspect.kind,
+        orb: aspect.orb,
+        phase: aspect.phase,
+        partile: aspect.partile,
+    })
+}
+
+const fn is_benefic(planet: Planet) -> bool {
+    matches!(planet, Planet::Venus | Planet::Jupiter)
+}
+
+const fn is_malefic(planet: Planet) -> bool {
+    matches!(planet, Planet::Mars | Planet::Saturn)
 }
 
 #[derive(Debug, Error)]
@@ -286,11 +395,14 @@ fn calculate_chart_aspects(
 
 #[cfg(test)]
 mod tests {
-    use super::{ChartCalculator, ChartError, LunarPhase, altitude};
+    use super::{
+        ChartCalculator, ChartError, LunarPhase, MercuryNature, MercuryTendency, altitude,
+    };
+    use crate::astro::aspects::{AspectHit, AspectKind, AspectPhase};
     use crate::astro::ephemeris::SwissEphemerisProvider;
     use crate::astro::types::{
-        Calendar, ChartPurpose, ChartRequest, CivilDateTime, Coordinates, TimeZoneSpec,
-        TraditionalHouseSystem,
+        Calendar, ChartPurpose, ChartRequest, CivilDateTime, Coordinates, Planet, PointId,
+        TimeZoneSpec, TraditionalHouseSystem,
     };
 
     #[test]
@@ -334,5 +446,59 @@ mod tests {
     fn altitude_uses_equatorial_horizon_geometry() {
         assert!((altitude(0.0, 0.0, 0.0, 0.0) - 90.0).abs() < 1e-10);
         assert!((altitude(0.0, 0.0, 180.0, 0.0) + 90.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn mercury_takes_the_nature_of_its_closest_benefic_or_malefic_contact() {
+        let nature = MercuryNature::from_aspects(&[
+            aspect_to_mercury(Planet::Mars, AspectKind::Square, 2.4),
+            aspect_to_mercury(Planet::Jupiter, AspectKind::Trine, 0.7),
+            aspect_to_mercury(Planet::Venus, AspectKind::Sextile, 3.1),
+        ]);
+
+        assert_eq!(nature.tendency, MercuryTendency::Benefic);
+        assert_eq!(
+            nature.decisive.map(|testimony| testimony.planet),
+            Some(Planet::Jupiter)
+        );
+        assert_eq!(nature.testimonies.len(), 3);
+    }
+
+    #[test]
+    fn mercury_is_convertible_without_benefic_or_malefic_testimony() {
+        let nature = MercuryNature::from_aspects(&[AspectHit {
+            left: PointId::Planet(Planet::Mercury),
+            right: PointId::Planet(Planet::Sun),
+            kind: AspectKind::Conjunction,
+            orb: 0.4,
+            phase: AspectPhase::Applying,
+            partile: true,
+        }]);
+
+        assert_eq!(nature.tendency, MercuryTendency::Convertible);
+        assert!(nature.decisive.is_none());
+        assert!(nature.testimonies.is_empty());
+    }
+
+    #[test]
+    fn equally_exact_opposing_testimony_keeps_mercury_mixed() {
+        let nature = MercuryNature::from_aspects(&[
+            aspect_to_mercury(Planet::Venus, AspectKind::Sextile, 1.0),
+            aspect_to_mercury(Planet::Saturn, AspectKind::Opposition, 1.0),
+        ]);
+
+        assert_eq!(nature.tendency, MercuryTendency::Mixed);
+        assert!(nature.decisive.is_none());
+    }
+
+    fn aspect_to_mercury(planet: Planet, kind: AspectKind, orb: f64) -> AspectHit {
+        AspectHit {
+            left: PointId::Planet(Planet::Mercury),
+            right: PointId::Planet(planet),
+            kind,
+            orb,
+            phase: AspectPhase::Applying,
+            partile: orb < 1.0,
+        }
     }
 }

@@ -30,6 +30,16 @@ Planetary qualities shown in the inspector are inherent baseline qualities;
 they are not a computed natal temperament and do not override sign, phase,
 sect, or aspect conditions.
 
+Mercury's benefic or malefic tendency follows its closest-by-orb Ptolemaic
+aspect to Venus or Jupiter on the benefic side, or Mars or Saturn on the
+malefic side. This is Meridian's explicit association rule for making
+Ptolemy's convertible Mercury legible; it is not presented as a universal
+historical scoring formula. Equal exactitude on both sides is shown as mixed,
+and no qualifying contact leaves Mercury convertible. The inspector always
+shows the deciding planet, aspect, phase, and orb. Aspect shape does not change
+the planet's nature: for example, a square from Jupiter is still benefic
+testimony, while a trine from Mars is still malefic testimony.
+
 ## Aspect policy
 
 The chart reports conjunction, sextile, square, trine, and opposition. It uses

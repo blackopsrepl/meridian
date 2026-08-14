@@ -13,7 +13,10 @@ mod timing;
 mod types;
 
 pub use aspects::{AspectHit, AspectKind, AspectPhase, OrbPolicy};
-pub use chart::{Chart, ChartCalculator, ChartError, ChartMetadata, LunarPhase};
+pub use chart::{
+    Chart, ChartCalculator, ChartError, ChartMetadata, LunarPhase, MercuryNature, MercuryTendency,
+    MercuryTestimony,
+};
 pub use dignity::{AccidentalDignity, Almuten, Combustion, EssentialDignity, PlanetCondition};
 pub use election::{
     ElectionCandidate, ElectionError, ElectionRequest, ElectionScoreItem, ElectionSearch,
