@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.3.0](http://vigilance:3002/pvd/meridian/compare/v0.2.1...v0.3.0) (2026-08-14)
+
+
+### Features
+
+* **astro:** derive Mercury nature from chart testimony ([11cc9c9](http://vigilance:3002/pvd/meridian/commit/11cc9c94f0707827a7ad3375942383d7b04d00fb))
+* **astro:** model traditional inspector properties ([38b3b06](http://vigilance:3002/pvd/meridian/commit/38b3b068bad0bf2c1e9f0e9f5be8a400d986129e))
+* **desktop:** improve chart data inspection ([f7710c4](http://vigilance:3002/pvd/meridian/commit/f7710c451a57cd0736ca0d07a4b22c866f4ac9db))
+
 ## [0.2.1](http://vigilance:3002/pvd/meridian/compare/v0.2.0...v0.2.1) (2026-08-13)
 
 
