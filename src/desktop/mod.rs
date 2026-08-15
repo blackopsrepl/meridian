@@ -2,6 +2,7 @@ mod archive;
 mod chart_canvas;
 mod elections;
 mod ephemeris;
+mod icon;
 mod new_chart;
 mod relationships;
 mod timing;
@@ -14,7 +15,7 @@ use chrono::{Datelike, Timelike, Utc};
 use iced::keyboard;
 use iced::widget::pane_grid::{self, PaneGrid};
 use iced::widget::{button, column, container, row, rule, scrollable, space, text};
-use iced::{Center, Color, Element, Fill, Length, Size, Subscription, Task, Theme};
+use iced::{Center, Color, Element, Fill, Length, Subscription, Task, Theme};
 
 use crate::astro::{
     AspectPhase, Calendar, Chart, ChartCalculator, ChartPurpose, ChartRequest, CivilDateTime,
@@ -28,17 +29,14 @@ use uuid::Uuid;
 
 use chart_canvas::Inspection;
 
-pub fn run() -> iced::Result {
+pub fn run() -> Result<()> {
     iced::application(Desktop::boot, Desktop::update, Desktop::view)
         .title(Desktop::window_title)
         .theme(Desktop::theme)
         .subscription(Desktop::subscription)
-        .window(iced::window::Settings {
-            size: Size::new(1360.0, 860.0),
-            min_size: Some(Size::new(980.0, 640.0)),
-            ..iced::window::Settings::default()
-        })
+        .window(icon::window_settings()?)
         .run()
+        .context("the Meridian window failed")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
