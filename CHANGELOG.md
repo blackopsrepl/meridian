@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.3.2](http://vigilance:3002/pvd/meridian/compare/v0.3.1...v0.3.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **desktop:** suppress the Windows console window ([7bc1f29](http://vigilance:3002/pvd/meridian/commit/7bc1f29db1bf56cf198a9bf0561f5f77a7a7bfbc))
+
 ## [0.3.1](http://vigilance:3002/pvd/meridian/compare/v0.3.0...v0.3.1) (2026-08-15)
 
 
