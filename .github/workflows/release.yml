@@ -263,6 +263,17 @@ jobs:
             "MERIDIAN_WINDOWS_SIGNED=true" | Out-File -FilePath $env:GITHUB_ENV -Append
           }
 
+      - name: Require Windows GUI subsystem
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $bytes = [IO.File]::ReadAllBytes("target/release/meridian.exe")
+          $peHeader = [BitConverter]::ToInt32($bytes, 0x3c)
+          $subsystem = [BitConverter]::ToUInt16($bytes, $peHeader + 92)
+          if ($subsystem -ne 2) {
+            throw "meridian.exe uses PE subsystem $subsystem instead of Windows GUI (2)"
+          }
+
       - name: Install NSIS
         if: matrix.platform == 'windows'
         shell: pwsh
