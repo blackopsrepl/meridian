@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.3.1](http://vigilance:3002/pvd/meridian/compare/v0.3.0...v0.3.1) (2026-08-15)
+
+
+### Features
+
+* **desktop:** show the Meridian application icon ([88ace81](http://vigilance:3002/pvd/meridian/commit/88ace819e31ef1d8218adb89ffe535d5cb5035f5))
+
+
+### Bug Fixes
+
+* **release:** pin the current GeoNames catalog ([7d7aff7](http://vigilance:3002/pvd/meridian/commit/7d7aff7d673a592f148d3ad7f46e6f000ff6307f))
+
 ## [0.3.0](http://vigilance:3002/pvd/meridian/compare/v0.2.1...v0.3.0) (2026-08-14)
 
 
