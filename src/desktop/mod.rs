@@ -5,22 +5,21 @@ mod ephemeris;
 mod icon;
 mod new_chart;
 mod relationships;
+mod timelapse;
 mod timing;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
-use chrono::{Datelike, Timelike, Utc};
 use iced::keyboard;
 use iced::widget::pane_grid::{self, PaneGrid};
 use iced::widget::{button, column, container, row, rule, scrollable, space, text};
 use iced::{Center, Color, Element, Fill, Length, Subscription, Task, Theme};
 
 use crate::astro::{
-    AspectPhase, Calendar, Chart, ChartCalculator, ChartPurpose, ChartRequest, CivilDateTime,
-    Coordinates, LotKind, MercuryNature, MercuryTendency, Planet, PrimaryQuality,
-    SwissEphemerisProvider, TimeZoneSpec, TraditionalHouseMotto, TraditionalHouseSystem,
+    AspectPhase, Chart, ChartCalculator, CivilDateTime, LotKind, MercuryNature, MercuryTendency,
+    Planet, PrimaryQuality, SwissEphemerisProvider, TraditionalHouseMotto,
 };
 use crate::document::{CHART_EXTENSION, ChartDocument};
 use crate::locations::CityIndex;
@@ -85,6 +84,7 @@ pub struct Desktop {
     elections: elections::State,
     store: Option<Store>,
     archive: archive::State,
+    timelapse: timelapse::State,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +113,7 @@ enum Message {
     Elections(elections::Message),
     Archive(archive::Message),
     ArchiveDeleteConfirmed(Uuid, bool),
+    Timelapse(timelapse::Message),
 }
 
 impl Desktop {
@@ -147,11 +148,12 @@ impl Desktop {
             elections: elections::State::default(),
             store: None,
             archive: archive::State::default(),
+            timelapse: timelapse::State::now(),
         };
 
         match DesktopResources::resolve().and_then(DesktopResources::load) {
             Ok((calculator, cities, store)) => {
-                match calculator.calculate(current_sky_request()) {
+                match calculator.calculate(desktop.timelapse.chart_request()) {
                     Ok(chart) => desktop.current_sky = Some(chart),
                     Err(error) => desktop.fatal_error = Some(error.to_string()),
                 }
@@ -180,6 +182,9 @@ impl Desktop {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Navigate(screen) => {
+                if screen != Screen::CurrentSky {
+                    self.timelapse.pause();
+                }
                 self.screen = screen;
                 self.inspection = None;
                 Task::none()
@@ -449,6 +454,12 @@ impl Desktop {
                 }
                 Task::none()
             }
+            Message::Timelapse(message) => {
+                if self.timelapse.update(message) {
+                    self.refresh_current_sky();
+                }
+                Task::none()
+            }
         }
     }
 
@@ -614,7 +625,17 @@ impl Desktop {
         })
         .spacing(7)
         .on_resize(9, Message::PaneResized);
-        container(grid).padding(7).width(Fill).height(Fill).into()
+        let chart = container(grid).padding(7).width(Fill).height(Fill);
+        if self.screen == Screen::CurrentSky {
+            column![
+                chart,
+                container(self.timelapse.view().map(Message::Timelapse)).padding([0, 7]),
+            ]
+            .height(Fill)
+            .into()
+        } else {
+            chart.into()
+        }
     }
 
     fn data_pane(chart: &Chart) -> Element<'_, Message> {
@@ -890,13 +911,19 @@ impl Desktop {
         }
     }
 
-    fn subscription(_: &Self) -> Subscription<Message> {
-        keyboard::listen().filter_map(|event| {
+    fn subscription(&self) -> Subscription<Message> {
+        let keyboard = keyboard::listen().filter_map(|event| {
             let keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
                 return None;
             };
             keyboard_message(key, modifiers)
-        })
+        });
+        let timelapse = if self.screen == Screen::CurrentSky {
+            self.timelapse.subscription().map(Message::Timelapse)
+        } else {
+            Subscription::none()
+        };
+        Subscription::batch([keyboard, timelapse])
     }
 
     fn window_title(&self) -> String {
@@ -953,6 +980,19 @@ impl Desktop {
 
     fn has_unsaved_document(&self) -> bool {
         self.document.is_some() && self.document_path.is_none() && self.archive_id.is_none()
+    }
+
+    fn refresh_current_sky(&mut self) {
+        let Some(calculator) = &self.calculator else {
+            return;
+        };
+        match calculator.calculate(self.timelapse.chart_request()) {
+            Ok(chart) => self.current_sky = Some(chart),
+            Err(error) => {
+                self.timelapse.pause();
+                self.status = format!("Could not render the selected sky: {error}");
+            }
+        }
     }
 }
 
@@ -1098,34 +1138,6 @@ fn startup_document_path() -> Option<PathBuf> {
     std::env::args_os().skip(1).map(PathBuf::from).find(|path| {
         path.extension().and_then(|extension| extension.to_str()) == Some(CHART_EXTENSION)
     })
-}
-
-fn current_sky_request() -> ChartRequest {
-    let now = Utc::now();
-    ChartRequest {
-        title: "Current Sky".to_owned(),
-        purpose: ChartPurpose::Event,
-        local_time: CivilDateTime {
-            year: now.year(),
-            month: now.month() as u8,
-            day: now.day() as u8,
-            hour: now.hour() as u8,
-            minute: now.minute() as u8,
-            second: f64::from(now.second()),
-            calendar: Calendar::Gregorian,
-        },
-        time_zone: TimeZoneSpec::FixedOffset {
-            minutes_east: 0,
-            label: Some("UTC".to_owned()),
-        },
-        location_name: "Greenwich".to_owned(),
-        coordinates: Coordinates {
-            latitude: 51.4779,
-            longitude: 0.0,
-            elevation_m: 46.0,
-        },
-        house_system: TraditionalHouseSystem::WholeSign,
-    }
 }
 
 async fn open_document() -> Result<(PathBuf, ChartDocument), String> {
